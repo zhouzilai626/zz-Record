@@ -11,14 +11,23 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 
 if (-not $AppPath) {
-	$packagedAppPath = Join-Path $repoRoot "release\win-unpacked\Recordly.exe"
-	$installedAppPath = Join-Path $env:LOCALAPPDATA "Programs\recordly\Recordly.exe"
-	if (Test-Path $packagedAppPath) {
-		$AppPath = $packagedAppPath
-	} elseif (Test-Path $installedAppPath) {
-		$AppPath = $installedAppPath
+	$packagedAppCandidates = @(
+		(Join-Path $repoRoot "release-zz\win-unpacked\zz-Record.exe"),
+		(Join-Path $repoRoot "release\win-unpacked\zz-Record.exe"),
+		(Join-Path $repoRoot "release\win-unpacked\Recordly.exe")
+	)
+	$installedAppCandidates = @(
+		(Join-Path $env:LOCALAPPDATA "Programs\zz-Record\zz-Record.exe"),
+		(Join-Path $env:LOCALAPPDATA "Programs\recordly\Recordly.exe")
+	)
+	$resolvedCandidate =
+		@($packagedAppCandidates + $installedAppCandidates) |
+			Where-Object { Test-Path $_ } |
+			Select-Object -First 1
+	if ($resolvedCandidate) {
+		$AppPath = $resolvedCandidate
 	} else {
-		throw "Recordly.exe was not found. Build the Windows package first or pass -AppPath."
+		throw "zz-Record.exe was not found. Build the Windows package first or pass -AppPath."
 	}
 }
 
@@ -34,10 +43,10 @@ if (-not (Test-Path $CudaScriptPath)) {
 	throw "NVIDIA CUDA/NVENC wrapper script not found: $CudaScriptPath"
 }
 
-$existingRecordly = @(Get-Process -Name "Recordly" -ErrorAction SilentlyContinue)
+$existingRecordly = @(Get-Process -Name "zz-Record","Recordly" -ErrorAction SilentlyContinue)
 if ($existingRecordly.Count -gt 0) {
 	if (-not $CloseExisting) {
-		Write-Host "Recordly is already running. Close it first, or rerun with -CloseExisting so the CUDA env is inherited by the new app process."
+		Write-Host "zz-Record is already running. Close it first, or rerun with -CloseExisting so the CUDA env is inherited by the new app process."
 		$existingRecordly | Select-Object Id, ProcessName, Path | Format-Table -AutoSize
 		exit 2
 	}
@@ -73,7 +82,7 @@ if ($AllowCudaAudio) {
 	$cudaAudioMode = "CUDA video-only, then shared app audio mux"
 }
 
-Write-Host "Launching Recordly with guarded NVIDIA CUDA/NVENC auto export enabled:"
+Write-Host "Launching zz-Record with guarded NVIDIA CUDA/NVENC auto export enabled:"
 Write-Host "  App: $resolvedAppPath"
 Write-Host "  CUDA wrapper: $env:RECORDLY_NVIDIA_CUDA_EXPORT_SCRIPT"
 Write-Host "  Force CUDA video-only: $($env:RECORDLY_NVIDIA_CUDA_FORCE_VIDEO_ONLY -eq '1')"
