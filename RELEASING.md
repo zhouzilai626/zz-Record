@@ -8,7 +8,7 @@ The primary shipped desktop artifact right now is:
 
 ## What the release workflow does
 
-When you publish a GitHub release tagged like `v1.3.4-custom`, `.github/workflows/release.yml` will:
+When you publish a GitHub release tagged like `v1.3.5-custom`, `.github/workflows/release.yml` will:
 
 - validate that `package.json` matches the tag version
 - build the Windows NSIS installer
@@ -36,7 +36,7 @@ These should point to an Authenticode code-signing certificate exported as `.p12
 4. Create and publish a GitHub release for that tag. Prefer the helper so custom notes are prepended while GitHub still generates the contributor section:
 
 ```bash
-npm run release:create -- --tag v1.3.4-custom --title "zz-Record v1.3.4" --notes-file ./release-notes.md
+npm run release:create -- --tag v1.3.5-custom --title "zz-Record v1.3.5" --notes-file ./release-notes.md
 ```
 
 For prereleases:
