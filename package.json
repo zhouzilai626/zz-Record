@@ -1,15 +1,15 @@
 {
 	"name": "recordly",
-	"productName": "Recordly",
-	"description": "A free, creator-focused screen recorder with auto-zoom, cursor effects, backgrounds, annotations, and more - built for polished videos out of the box.",
+	"productName": "zz-Record",
+	"description": "A customized Recordly-based screen recorder with local phone camera workflow, Windows packaging fixes, and polished demo editing tools.",
 	"author": "webadderall",
-	"homepage": "https://github.com/webadderallorg/Recordly",
+	"homepage": "https://github.com/zhouzilai626/zz-Record",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/webadderallorg/Recordly.git"
+		"url": "https://github.com/zhouzilai626/zz-Record.git"
 	},
 	"bugs": {
-		"url": "https://github.com/webadderallorg/Recordly/issues"
+		"url": "https://github.com/zhouzilai626/zz-Record/issues"
 	},
 	"private": true,
 	"version": "1.3.4",
