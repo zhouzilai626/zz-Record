@@ -9,24 +9,27 @@ Language: EN | [简中](README.zh-CN.md)
   <img src="https://img.shields.io/badge/open%20source-AGPL3.0-2563eb?style=for-the-badge" alt="AGPL 3.0 license" />
 </p>
 
-### Create polished demo videos in minutes
-[Recordly](https://www.recordly.dev) is your **open-source screen recorder** and editor for **walkthroughs, demos, product videos**, and more. 
-**Accepting PRs.**
+### zz-Record: a custom Recordly-based screen recorder for polished demos
+`zz-Record` is a customized build derived from Recordly. It keeps the core screen recording and editing workflow, while adding custom Windows-focused migration work, packaging fixes, and a local phone-camera workflow for pairing, preview, and recording.
+
+This repository is the actively maintained custom source for the `zz-Record` build published at:
+
+https://github.com/zhouzilai626/zz-Record
 
 <img width="1280" height="720" alt="MP4 to GIF export (4)" src="https://github.com/user-attachments/assets/e6d68606-5fc0-4f70-99cd-7521982dc13b" />
 
 
 ---
-### Backed by the community
-<a href="https://coderabbit.link/recordly"><img width="400" alt="CodeRabbit Typemark" src="https://github.com/user-attachments/assets/3926ecfd-8652-4f2d-8da8-ac7641017cf5" /></a>
+## What is zz-Record?
 
----
+`zz-Record` is a customized desktop app for recording and editing screen captures with motion-driven presentation tools built in. It is based on the Recordly codebase, but this repository tracks a custom branch focused on:
 
-## What is Recordly?
+- Windows packaging that can be rebuilt locally
+- custom cursor / zoom / export behavior migrations
+- local phone camera pairing support in source
+- a source-level bridge for using a phone as a local camera input
 
-Recordly is a desktop app for recording and editing screen captures with motion-driven presentation tools built in. Instead of sending raw footage to a motion designer just to add zooms, cursor polish, or a styled background, Recordly handles that workflow in one place for free.
-
-Recordly runs on:
+zz-Record runs on:
 
 - **macOS** 14.0+
 - **Windows** 10 Build 19041+
@@ -35,8 +38,27 @@ Recordly runs on:
 Platform notes:
 
 - **macOS** uses native ScreenCaptureKit-based capture helpers.
-- **Windows** uses a native Windows Graphics Capture (WGC) helper on supported builds, with native WASAPI audio support.
+- **Windows** uses a native Windows Graphics Capture (WGC) helper on supported builds, with native WASAPI audio support. This custom branch is primarily validated on Windows.
 - **Linux** records through Electron capture APIs. Cursor hiding is not supported on Linux today.
+
+---
+
+# Custom Branch Highlights
+
+## Local phone camera workflow
+This custom branch includes a local phone-camera flow that was migrated into source:
+
+- select `Phone Camera (Local)` as a camera source
+- open a dedicated desktop pairing window
+- pair from a phone over local LAN
+- upload live preview frames from the phone browser
+- show those frames in desktop preview
+- record the phone feed into the webcam layer pipeline
+
+Current scope:
+
+- pairing, local bridge, preview, and recording are wired
+- this is implemented as a local network browser-based bridge, not as a native mobile app
 
 ---
 
@@ -172,7 +194,7 @@ Browse and install community extensions from the [Recordly Marketplace](https://
 
 Prebuilt releases are available at:
 
-https://github.com/webadderallorg/Recordly/releases
+https://github.com/zhouzilai626/zz-Record/releases
 
 ---
 
@@ -205,8 +227,8 @@ sudo apt install build-essential cmake libx11-dev libxtst-dev libxrandr-dev libx
 ### Steps
 
 ```bash
-git clone https://github.com/webadderallorg/Recordly.git recordly
-cd recordly
+git clone https://github.com/zhouzilai626/zz-Record.git
+cd zz-Record
 npm install
 npm run dev
 ```
