@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import type { PhoneCameraState } from "@/lib/phoneCamera";
 
 function maskPairingCode(code?: string): string {
@@ -50,6 +51,7 @@ export function PhoneCameraPairingWindow() {
 	}, []);
 
 	const tone = useMemo(() => getStatusTone(phoneCameraState), [phoneCameraState]);
+	const pairingUrl = phoneCameraState?.pairingUrl;
 
 	const handleCopy = useCallback(async (value: string | undefined, kind: "code" | "url") => {
 		if (!value) {
@@ -90,6 +92,27 @@ export function PhoneCameraPairingWindow() {
 							This window is the new source-level pairing entry for phone camera support. Real camera streaming is still in progress, but the app can now create and track a dedicated pairing session.
 						</p>
 
+						<div className="mt-7 flex flex-col items-center rounded-[24px] border border-white/10 bg-white px-6 py-7 text-[#0c1624] shadow-xl shadow-black/20">
+							<div className="rounded-[24px] bg-white p-4 shadow-sm">
+								{pairingUrl ? (
+									<QRCodeSVG
+										value={pairingUrl}
+										size={224}
+										bgColor="#ffffff"
+										fgColor="#0c1624"
+										includeMargin={true}
+									/>
+								) : (
+									<div className="flex h-[224px] w-[224px] items-center justify-center rounded-[18px] border border-slate-200 bg-slate-100 px-6 text-center text-sm text-slate-500">
+										Waiting for a pairing session...
+									</div>
+								)}
+							</div>
+							<p className="mt-4 text-center text-sm font-medium text-slate-700">
+								Scan this QR code with your phone to open the local pairing page.
+							</p>
+						</div>
+
 						<div className="mt-7 rounded-[24px] border border-white/10 bg-black/20 p-6">
 							<div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">Pairing code</div>
 							<div className="mt-3 font-mono text-4xl font-semibold tracking-[0.18em] text-white">{maskPairingCode(phoneCameraState?.pairingCode)}</div>
@@ -114,7 +137,7 @@ export function PhoneCameraPairingWindow() {
 						<div className="mt-5 rounded-[22px] border border-white/10 bg-white/[0.03] p-5">
 							<div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">Pairing link</div>
 							<div className="mt-3 break-all rounded-2xl bg-black/25 px-4 py-3 font-mono text-sm text-white/86">
-								{phoneCameraState?.pairingUrl || "Waiting for session initialization..."}
+								{pairingUrl || "Waiting for session initialization..."}
 							</div>
 						</div>
 					</section>
