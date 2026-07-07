@@ -1,0 +1,75 @@
+name: Publish Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to build and upload, e.g. v1.3.4
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish-windows:
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      CSC_LINK: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_P12_BASE64 }}
+      CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+    steps:
+      - name: Resolve tag
+        id: vars
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.vars.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate package version matches tag
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="${{ steps.vars.outputs.tag }}"
+          EXPECTED="v$VERSION"
+          EXPECTED_CUSTOM="v$VERSION-custom"
+          if [ "$TAG" != "$EXPECTED" ] && [ "$TAG" != "$EXPECTED_CUSTOM" ]; then
+            echo "Tag $TAG does not match package.json version $VERSION (expected $EXPECTED or $EXPECTED_CUSTOM)" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows release
+        run: npm run build:win
+
+      - name: Write release checksums
+        run: node scripts/write-release-checksums.mjs RELEASE_CHECKSUMS.txt
+
+      - name: Upload release assets
+        shell: bash
+        run: |
+          gh release upload "${{ steps.vars.outputs.tag }}" \
+            ./release/zz-Record-windows-x64.exe \
+            ./release/zz-Record-windows-x64.exe.blockmap \
+            ./release/latest.yml \
+            ./release/RELEASE_CHECKSUMS.txt \
+            --clobber
