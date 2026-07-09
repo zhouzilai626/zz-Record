@@ -1,5 +1,6 @@
 import os from "node:os";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { BrowserWindow, ipcMain } from "electron";
 
 let bridgeBaseUrl: string | null = null;
 let bridgeStartPromise: Promise<string> | null = null;
@@ -23,13 +24,22 @@ let frameCallback:
 	  }) => boolean)
 	| null = null;
 
-function escapeHtml(value: string): string {
-	return value
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&#39;");
+// WebRTC signaling state
+let webrtcOffer: string | null = null;
+let webrtcAnswer: string | null = null;
+let webrtcIceFromOverlay: unknown[] = [];
+let webrtcIceFromPhone: unknown[] = [];
+let answerPollTimer: NodeJS.Timeout | undefined;
+let answerReadyResolver: (() => void) | null = null;
+
+const PHONE_CAMERA_WEBRTC_SIGNAL_CHANNEL = "recordly-phone-camera:webrtc-signal";
+
+function broadcastWebrtcSignal(signal: unknown): void {
+	for (const win of BrowserWindow.getAllWindows()) {
+		if (!win.isDestroyed()) {
+			win.webContents.send(PHONE_CAMERA_WEBRTC_SIGNAL_CHANNEL, signal);
+		}
+	}
 }
 
 function getPreferredLanAddress(): string {
@@ -51,251 +61,245 @@ function renderBridgePage(params: {
 	status: "ready" | "connected" | "invalid";
 	message: string;
 }) {
-	const { sessionId, pairingCode, status, message } = params;
-	const safeSessionId = escapeHtml(sessionId);
-	const safePairingCode = escapeHtml(pairingCode);
-	const safeMessage = escapeHtml(message);
-	const tone = status === "connected" ? "#2f9e44" : status === "invalid" ? "#d9480f" : "#1c7ed6";
-	const actionDisabled = status === "invalid" ? "disabled" : "";
-	return `<!doctype html>
-<html lang="en">
+	const { sessionId, pairingCode } = params;
+	return `<!DOCTYPE html>
+<html lang="zh-CN">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Recordly Phone Camera Pairing</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>Recordly Phone Camera</title>
 <style>
-:root { color-scheme: dark; }
-* { box-sizing: border-box; }
-body {
-  margin: 0;
-  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  min-height: 100vh;
-  background: radial-gradient(circle at top, rgba(45,110,255,.24), transparent 34%), linear-gradient(160deg, #07111f 0%, #0d1b2a 48%, #081019 100%);
-  color: #f8fafc;
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; touch-action: none; }
+video#preview {
+  position: fixed; top: 0; left: 0;
+  width: 100%; height: 100%;
+  object-fit: cover; display: block;
+  transform: scaleX(-1);
 }
-main {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 24px;
+#ui-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 10; opacity: 0; transition: opacity 0.3s;
+  pointer-events: none;
 }
-.card {
-  border: 1px solid rgba(255,255,255,.1);
-  background: rgba(255,255,255,.05);
-  border-radius: 28px;
-  padding: 24px;
-  backdrop-filter: blur(18px);
-  box-shadow: 0 20px 60px rgba(0,0,0,.35);
+#ui-overlay.visible { opacity: 1; pointer-events: auto; }
+#status-bar {
+  position: absolute; top: 0; left: 0; right: 0;
+  padding: 16px 20px 32px; display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 100%);
+  font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.8);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid color-mix(in srgb, ${tone} 45%, transparent);
-  color: ${tone};
-  background: color-mix(in srgb, ${tone} 12%, transparent);
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 600;
+#status-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; }
+#actions {
+  position: absolute; bottom: 48px; left: 0; right: 0;
+  display: flex; justify-content: center; gap: 24px;
 }
-.code {
-  margin-top: 16px;
-  padding: 18px 20px;
-  border-radius: 22px;
-  background: rgba(0,0,0,.22);
-  border: 1px solid rgba(255,255,255,.08);
-  font: 700 38px/1.1 Consolas, monospace;
-  letter-spacing: .18em;
+.action-btn {
+  width: 56px; height: 56px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.3);
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  color: #fff; font-size: 13px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px;
+  cursor: pointer; transition: all 0.2s;
+  -webkit-tap-highlight-color: transparent; user-select: none;
 }
-.meta {
-  margin-top: 18px;
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: rgba(255,255,255,.04);
-  color: rgba(255,255,255,.75);
-  font: 500 13px/1.6 Consolas, monospace;
-  word-break: break-all;
+.action-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.2); }
+.action-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; }
+.action-btn-label { font-size: 9px; opacity: 0.8; }
+#disconnect-btn { color: #fca5a5; border-color: rgba(239,68,68,0.4); }
+#error-msg {
+  position: fixed; bottom: 120px; left: 20px; right: 20px;
+  padding: 12px 16px; border-radius: 12px;
+  background: rgba(239,68,68,0.2);
+  border: 1px solid rgba(239,68,68,0.3);
+  color: #fca5a5; font-size: 14px; text-align: center;
+  display: none; z-index: 20;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
-button {
-  margin-top: 22px;
-  width: 100%;
-  border: 0;
-  border-radius: 999px;
-  padding: 14px 18px;
-  font-size: 15px;
-  font-weight: 700;
-  background: white;
-  color: #0c1624;
-}
-button[disabled] {
-  opacity: .5;
-}
-video {
-  margin-top: 18px;
-  width: 100%;
-  border-radius: 22px;
-  border: 1px solid rgba(255,255,255,.08);
-  background: rgba(0,0,0,.28);
-  aspect-ratio: 3 / 4;
-  object-fit: cover;
-}
-p, li { line-height: 1.7; color: rgba(255,255,255,.76); }
-small { color: rgba(255,255,255,.52); }
 </style>
 </head>
 <body>
-<main>
-  <section class="card">
-    <div class="badge">${status === "connected" ? "Desktop acknowledged" : status === "invalid" ? "Invalid session" : "Ready to connect"}</div>
-    <h1>Recordly Phone Camera Bridge</h1>
-    <p>${safeMessage}</p>
-    <div class="code">${safePairingCode.replace(/(.{3})/g, "$1 ").trim()}</div>
-    <div class="meta">Session: ${safeSessionId}</div>
-    <button id="connect" ${actionDisabled}>Notify desktop</button>
-    <button id="startCamera" ${actionDisabled}>Enable camera preview</button>
-    <video id="preview" autoplay playsinline muted></video>
-    <p><small>This page can now notify the desktop app and upload preview frames from the phone camera over the local network.</small></p>
-  </section>
-</main>
+<video id="preview" autoplay playsinline muted></video>
+<div id="ui-overlay">
+  <div id="status-bar">
+    <span id="status-dot"></span>
+    <span id="status-text">已连接 - Recordly</span>
+  </div>
+  <div id="actions">
+    <button class="action-btn" id="switch-btn" title="切换摄像头">
+      <svg viewBox="0 0 24 24"><path d="M4 7h16M4 7l3-3M4 7l3 3M20 17H4M20 17l-3-3M20 17l-3 3"/><rect x="2" y="11" width="20" height="2"/></svg>
+      <span class="action-btn-label">切换</span>
+    </button>
+    <button class="action-btn" id="disconnect-btn" title="断开连接">
+      <svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/><path d="M5.64 18.36l2.83-2.83M18.36 18.36l-2.83-2.83"/></svg>
+      <span class="action-btn-label">断开</span>
+    </button>
+  </div>
+</div>
+<div id="error-msg"></div>
 <script>
-const button = document.getElementById('connect');
-const startCameraButton = document.getElementById('startCamera');
 const preview = document.getElementById('preview');
+const uiOverlay = document.getElementById('ui-overlay');
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+const errorMsg = document.getElementById('error-msg');
+const switchBtn = document.getElementById('switch-btn');
+const disconnectBtn = document.getElementById('disconnect-btn');
 const sessionId = ${JSON.stringify(sessionId)};
 const pairingCode = ${JSON.stringify(pairingCode)};
-let desktopConnected = ${JSON.stringify(status === "connected")};
-let captureInterval = null;
-let currentStream = null;
+let pc = null;
+let cameraStream = null;
+let wakeLock = null;
+let facingMode = 'environment';
+let overlayTimer = null;
 
-async function notifyDesktop() {
-  if (!button) return false;
-  button.disabled = true;
-  button.textContent = 'Sending...';
-  try {
-    const response = await fetch('/phone-camera/connect', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId, pairingCode })
-    });
-    const result = await response.json();
-    if (result.success) {
-      desktopConnected = true;
-      button.textContent = 'Desktop notified';
-      return true;
-    }
-    button.disabled = false;
-    button.textContent = 'Notify desktop';
-    alert(result.error || 'Failed to notify desktop app.');
-    return false;
-  } catch (error) {
-    button.disabled = false;
-    button.textContent = 'Notify desktop';
-    alert('Failed to notify desktop app.');
-    return false;
-  }
+function showOverlay() {
+  uiOverlay.classList.add('visible');
+  if (overlayTimer) clearTimeout(overlayTimer);
+  overlayTimer = setTimeout(() => { uiOverlay.classList.remove('visible'); }, 3000);
+}
+document.addEventListener('click', showOverlay);
+document.addEventListener('touchstart', showOverlay);
+
+function setStatus(text, state) {
+  statusText.textContent = text;
+  statusDot.style.background = state === 'connected' ? '#22c55e' : state === 'error' ? '#ef4444' : '#eab308';
+}
+function showError(msg) {
+  errorMsg.textContent = msg;
+  errorMsg.style.display = 'block';
+  showOverlay();
 }
 
-async function uploadFrame(canvas) {
-  const frameDataUrl = canvas.toDataURL('image/jpeg', 0.72);
-  const response = await fetch('/phone-camera/frame', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      sessionId,
-      pairingCode,
-      frameDataUrl,
-      width: canvas.width,
-      height: canvas.height,
-      capturedAtMs: Date.now()
-    })
-  });
-  const result = await response.json();
-  if (!result.success) {
-    throw new Error(result.error || 'Failed to upload frame.');
-  }
-}
-
-async function startCameraPreview() {
-  if (!startCameraButton || !preview) return;
-  startCameraButton.disabled = true;
-  startCameraButton.textContent = 'Starting camera...';
+async function startCamera(facing) {
   try {
-    if (!desktopConnected) {
-      const success = await notifyDesktop();
-      if (!success) {
-        startCameraButton.disabled = false;
-        startCameraButton.textContent = 'Enable camera preview';
-        return;
-      }
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(t => t.stop());
     }
-
-    currentStream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: 'environment' },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      },
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } },
       audio: false
     });
-    preview.srcObject = currentStream;
+    preview.srcObject = cameraStream;
+    setStatus('已连接 - Recordly', 'connected');
+    return cameraStream;
+  } catch (err) {
+    console.error('Camera error:', err);
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      showError('需要摄像头权限，请在浏览器设置中允许访问');
+    } else if (err.name === 'NotFoundError') {
+      showError('未检测到摄像头');
+    } else {
+      showError('摄像头启动失败: ' + err.message);
+    }
+    setStatus('摄像头错误', 'error');
+    throw err;
+  }
+}
 
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    const sendFrame = async () => {
-      if (!context || !preview.videoWidth || !preview.videoHeight) {
-        return;
+async function switchCamera() {
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  setStatus('切换摄像头...', 'connecting');
+  try {
+    const newStream = await startCamera(facingMode);
+    if (pc) {
+      const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+      if (sender) {
+        const newTrack = newStream.getVideoTracks()[0];
+        sender.replaceTrack(newTrack);
       }
+    }
+    setStatus('已连接 - Recordly', 'connected');
+  } catch(e) {
+    facingMode = facingMode === 'environment' ? 'user' : 'environment';
+    showError('切换摄像头失败');
+  }
+}
 
-      const targetWidth = Math.min(960, preview.videoWidth);
-      const scale = targetWidth / preview.videoWidth;
-      canvas.width = targetWidth;
-      canvas.height = Math.max(1, Math.round(preview.videoHeight * scale));
-      context.drawImage(preview, 0, 0, canvas.width, canvas.height);
-      await uploadFrame(canvas);
-    };
-
-    await new Promise((resolve) => {
-      if (preview.readyState >= 2) {
-        resolve();
-        return;
-      }
-      preview.onloadedmetadata = () => resolve();
+async function startSignaling() {
+  try {
+    const videoTrack = cameraStream.getVideoTracks()[0];
+    if (!videoTrack) throw new Error('No video track');
+    pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
     });
-
-    await sendFrame();
-    captureInterval = window.setInterval(() => {
-      void sendFrame().catch((error) => {
-        console.error('[phone-camera-bridge] Frame upload failed:', error);
-      });
-    }, 800);
-    startCameraButton.textContent = 'Camera streaming';
-  } catch (error) {
-    startCameraButton.disabled = false;
-    startCameraButton.textContent = 'Enable camera preview';
-    alert(error instanceof Error ? error.message : 'Failed to start phone camera.');
+    pc.addTrack(videoTrack, cameraStream);
+    pc.onicecandidate = async (event) => {
+      if (event.candidate) {
+        try {
+          await fetch('/api/webrtc-ice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(event.candidate)
+          });
+        } catch(e) {}
+      }
+    };
+    pc.onconnectionstatechange = () => {
+      console.log('[phone] PC state:', pc.connectionState);
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        setStatus('连接中断', 'error');
+      }
+    };
+    const offer = await pc.createOffer({ offerToReceiveVideo: false, offerToReceiveAudio: false });
+    await pc.setLocalDescription(offer);
+    const offerResp = await fetch('/api/webrtc-offer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'offer', sdp: pc.localDescription })
+    });
+    let answerData = null;
+    while (!answerData) {
+      const resp = await fetch('/api/webrtc-answer', { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+      const data = await resp.json();
+      if (data.type === 'answer' && data.sdp) { answerData = data; break; }
+      await new Promise(r => setTimeout(r, 300));
+    }
+    if (answerData) {
+      await pc.setRemoteDescription(new RTCSessionDescription(answerData.sdp));
+      console.log('[phone] Remote description set');
+    }
+    setStatus('已连接 - Recordly', 'connected');
+    async function pollIce() {
+      while (pc && pc.connectionState !== 'failed') {
+        try {
+          const resp = await fetch('/api/webrtc-ice', { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+          const candidates = await resp.json();
+          if (Array.isArray(candidates)) {
+            for (const c of candidates) {
+              try { if (c && c.candidate) await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(e) {}
+            }
+          }
+        } catch(e) {}
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+    pollIce();
+  } catch (err) {
+    console.error('[phone] Failed to start:', err);
+    setStatus('连接失败', 'error');
   }
 }
 
-if (button) {
-  button.addEventListener('click', async () => {
-    void notifyDesktop();
-  });
+function disconnect() {
+  if (pc) pc.close();
+  if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
+  if (wakeLock) { wakeLock.release(); wakeLock = null; }
+  pc = null; cameraStream = null;
+  preview.srcObject = null;
 }
-
-if (startCameraButton) {
-  startCameraButton.addEventListener('click', () => {
-    void startCameraPreview();
-  });
-}
-
-window.addEventListener('beforeunload', () => {
-  if (captureInterval) {
-    window.clearInterval(captureInterval);
-  }
-  if (currentStream) {
-    currentStream.getTracks().forEach((track) => track.stop());
-  }
-});
+switchBtn.addEventListener('click', (e) => { e.stopPropagation(); switchCamera(); });
+disconnectBtn.addEventListener('click', (e) => { e.stopPropagation(); disconnect(); });
+startCamera(facingMode).then(() => startSignaling());
+window.addEventListener('beforeunload', () => { disconnect(); });
 </script>
 </body>
 </html>`;
@@ -399,6 +403,87 @@ async function handleBridgeRequest(request: IncomingMessage, response: ServerRes
 			return;
 		}
 
+		// WebRTC signaling routes
+		if (url.pathname === "/api/webrtc-offer" && request.method === "POST") {
+			const body = (await readJsonBody(request)) as { sdp?: string } | null;
+			const sdp = typeof body?.sdp === "string" ? body.sdp : null;
+			if (!sdp) {
+				response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+				response.end(JSON.stringify({ error: "Missing SDP offer." }));
+				return;
+			}
+			webrtcOffer = sdp;
+			webrtcAnswer = null;
+			webrtcIceFromOverlay = [];
+			webrtcIceFromPhone = [];
+			broadcastWebrtcSignal({ type: "offer", sdp: webrtcOffer });
+			if (answerReadyResolver) {
+				try { answerReadyResolver(); } catch (e) { /* ignore */ }
+				answerReadyResolver = null;
+			}
+			answerPollTimer = setInterval(() => {
+				if (webrtcAnswer) {
+					clearInterval(answerPollTimer);
+					answerPollTimer = undefined;
+					if (answerReadyResolver) {
+						try { answerReadyResolver(); } catch (e) { /* ignore */ }
+						answerReadyResolver = null;
+					}
+				}
+			}, 100);
+			setTimeout(() => {
+				if (answerPollTimer) {
+					clearInterval(answerPollTimer);
+					answerPollTimer = undefined;
+					webrtcOffer = null;
+					if (!response.headersSent) {
+						response.writeHead(408);
+						response.end();
+					}
+				}
+			}, 30000);
+			return;
+		}
+
+		if (url.pathname === "/api/webrtc-answer" && request.method === "POST") {
+			const body = (await readJsonBody(request)) as { sdp?: string } | null;
+			const sdp = typeof body?.sdp === "string" ? body.sdp : null;
+			if (!sdp) {
+				response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
+				response.end(JSON.stringify({ error: "Missing SDP answer." }));
+				return;
+			}
+			webrtcAnswer = sdp;
+			broadcastWebrtcSignal({ type: "answer", sdp: webrtcAnswer });
+			response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+			response.end(JSON.stringify({ ok: true }));
+			return;
+		}
+
+		if (url.pathname === "/api/webrtc-answer" && request.method === "GET") {
+			const payload = webrtcAnswer ? { type: "answer", sdp: webrtcAnswer } : { type: "pending" };
+			response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+			response.end(JSON.stringify(payload));
+			return;
+		}
+
+		if (url.pathname === "/api/webrtc-ice" && request.method === "POST") {
+			const body = (await readJsonBody(request)) as unknown;
+			webrtcIceFromPhone.push(body);
+			broadcastWebrtcSignal({ type: "ice-candidate", candidate: body });
+			response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+			response.end(JSON.stringify({ ok: true }));
+			return;
+		}
+
+		if (url.pathname === "/api/webrtc-ice" && request.method === "GET") {
+			const candidates = webrtcIceFromOverlay.slice();
+			webrtcIceFromOverlay = [];
+			response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
+			response.end(JSON.stringify(candidates));
+			return;
+		}
+
 		response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
 		response.end("Not Found");
 	} catch (error) {
@@ -424,6 +509,34 @@ export function configurePhoneCameraBridgeSession(options: {
 	currentSessionResolver = options.getSession;
 	connectCallback = options.onConnect;
 	frameCallback = options.onFrame;
+
+	ipcMain.on(PHONE_CAMERA_WEBRTC_SIGNAL_CHANNEL, (_event, signal: unknown) => {
+		if (signal && typeof signal === "object") {
+			const msg = signal as { type?: string; sdp?: string; candidate?: unknown };
+			if (msg.type === "answer" && typeof msg.sdp === "string") {
+				webrtcAnswer = msg.sdp;
+				if (answerReadyResolver) {
+					try { answerReadyResolver(); } catch (e) { /* ignore */ }
+					answerReadyResolver = null;
+				}
+			} else if (msg.type === "ice-candidate") {
+				webrtcIceFromOverlay.push(msg.candidate ?? msg);
+			}
+		}
+	});
+}
+
+export function waitForWebrtcAnswer(): Promise<void> {
+	if (webrtcAnswer) {
+		return Promise.resolve();
+	}
+	return new Promise((resolve) => {
+		answerReadyResolver = resolve;
+	});
+}
+
+export function getPhoneCameraWebrtcSignalingChannel(): string {
+	return PHONE_CAMERA_WEBRTC_SIGNAL_CHANNEL;
 }
 
 export function getPhoneCameraBridgeBaseUrl(): string | null {
@@ -455,4 +568,16 @@ export async function ensurePhoneCameraBridgeServer(): Promise<string> {
 		});
 	});
 	return bridgeStartPromise;
+}
+
+export function closePhoneCameraBridgeSession(): void {
+	if (answerPollTimer) {
+		clearInterval(answerPollTimer);
+		answerPollTimer = undefined;
+	}
+	webrtcOffer = null;
+	webrtcAnswer = null;
+	webrtcIceFromOverlay = [];
+	webrtcIceFromPhone = [];
+	answerReadyResolver = null;
 }

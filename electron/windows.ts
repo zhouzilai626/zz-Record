@@ -7,6 +7,7 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import { USER_DATA_PATH } from "./appPaths";
 import { getHudOverlayWindowBounds, resizeHudOverlayFallbackBounds } from "./hudOverlayBounds";
 import { getPackagedRendererBaseUrl } from "./rendererServer";
+import { getPhoneCameraOverlayHtml } from "./phone-camera/overlayContent";
 
 const electronWindowsDir = path.dirname(fileURLToPath(import.meta.url));
 const nodeRequire = createRequire(import.meta.url);
@@ -1115,4 +1116,84 @@ export function closePhoneCameraPairingWindow(): void {
 	}
 	phoneCameraPairingWindow.close();
 	phoneCameraPairingWindow = null;
+}
+
+// ---- Phone Camera Overlay ----
+let phoneCameraOverlayWindow: BrowserWindow | null = null;
+
+export function createPhoneCameraOverlayWindow(): BrowserWindow {
+	if (phoneCameraOverlayWindow && !phoneCameraOverlayWindow.isDestroyed()) {
+		return phoneCameraOverlayWindow;
+	}
+
+	const win = new BrowserWindow({
+		width: 320,
+		height: 480,
+		x: 120,
+		y: 80,
+		frame: false,
+		transparent: false,
+		backgroundColor: "#000000",
+		resizable: true,
+		alwaysOnTop: true,
+		skipTaskbar: true,
+		hasShadow: true,
+		show: false,
+		focusable: false,
+		title: "Recordly Phone Camera",
+		webPreferences: {
+			preload: path.join(electronWindowsDir, "preload.mjs"),
+			nodeIntegration: false,
+			contextIsolation: true,
+			backgroundThrottling: false,
+		},
+	});
+
+	phoneCameraOverlayWindow = win;
+
+	win.once("ready-to-show", () => {
+		win.show();
+		win.moveTop();
+	});
+
+	win.on("closed", () => {
+		if (phoneCameraOverlayWindow === win) {
+			phoneCameraOverlayWindow = null;
+		}
+	});
+
+	const html = getPhoneCameraOverlayHtml();
+	win.loadURL(
+		`data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
+	);
+
+	return win;
+}
+
+export function showPhoneCameraOverlayWindow(): BrowserWindow | null {
+	const win = getPhoneCameraOverlayWindow() ?? createPhoneCameraOverlayWindow();
+	if (!win.isVisible()) {
+		win.show();
+		win.moveTop();
+	}
+	return win;
+}
+
+export function hidePhoneCameraOverlayWindow(): void {
+	if (phoneCameraOverlayWindow && !phoneCameraOverlayWindow.isDestroyed()) {
+		phoneCameraOverlayWindow.hide();
+	}
+}
+
+export function destroyPhoneCameraOverlayWindow(): void {
+	if (phoneCameraOverlayWindow && !phoneCameraOverlayWindow.isDestroyed()) {
+		phoneCameraOverlayWindow.destroy();
+	}
+	phoneCameraOverlayWindow = null;
+}
+
+export function getPhoneCameraOverlayWindow(): BrowserWindow | null {
+	return phoneCameraOverlayWindow && !phoneCameraOverlayWindow.isDestroyed()
+		? phoneCameraOverlayWindow
+		: null;
 }

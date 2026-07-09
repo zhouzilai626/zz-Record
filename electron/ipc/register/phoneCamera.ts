@@ -5,8 +5,17 @@ import {
 	type PhoneCameraFramePayload,
 	type PhoneCameraState,
 } from "../../../src/lib/phoneCamera";
-import { configurePhoneCameraBridgeSession, ensurePhoneCameraBridgeServer } from "../../phoneCameraBridgeServer";
-import { closePhoneCameraPairingWindow, showPhoneCameraPairingWindow } from "../../windows";
+import {
+	closePhoneCameraBridgeSession,
+	configurePhoneCameraBridgeSession,
+	ensurePhoneCameraBridgeServer,
+} from "../../phoneCameraBridgeServer";
+import {
+	closePhoneCameraPairingWindow,
+	destroyPhoneCameraOverlayWindow,
+	showPhoneCameraOverlayWindow,
+	showPhoneCameraPairingWindow,
+} from "../../windows";
 
 const PHONE_CAMERA_STATE_CHANGED_CHANNEL = "recordly-phone-camera:state-changed";
 
@@ -128,7 +137,9 @@ export function registerPhoneCameraHandlers() {
 			pairingUrl,
 		});
 		latestPhoneCameraFrame = null;
+		closePhoneCameraBridgeSession();
 		showPhoneCameraPairingWindow();
+		showPhoneCameraOverlayWindow();
 		return {
 			success: true,
 			...state,
@@ -172,6 +183,8 @@ export function registerPhoneCameraHandlers() {
 			pairingUrl: undefined,
 		});
 		closePhoneCameraPairingWindow();
+		destroyPhoneCameraOverlayWindow();
+		closePhoneCameraBridgeSession();
 		return { success: true, ...state };
 	});
 }
