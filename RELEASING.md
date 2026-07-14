@@ -1,66 +1,56 @@
-# Releasing zz-Record
+# ZZ Record 发布说明
 
-This repository publishes the Windows installer with `electron-builder` + `electron-updater`.
+当前正式发布 Windows x64 安装包，使用 GitHub Actions 在 Windows 2022 环境构建。
 
-The primary shipped desktop artifact right now is:
+## 发布前检查
+
+1. 将 `package.json` 与 `package-lock.json` 的版本统一为待发布版本，例如 `1.4.5`。
+2. 提交并推送 `main`。
+3. 执行 `npx tsc --noEmit`，并运行与改动相关的测试。
+4. 确认 `release/`、本机录制文件、证书和私钥没有被提交。
+
+## 创建正式版本
+
+发布标签必须与包版本一致：`vX.Y.Z`。
+
+```bash
+npm run release:create -- --tag v1.4.5 --title "ZZ Record v1.4.5" --notes-file ./release-notes.md
+```
+
+该命令会创建并发布 GitHub Release。发布后 `.github/workflows/release.yml` 会自动：
+
+- 在 Windows 2022 上安装依赖并编译原生辅助工具
+- 构建 Windows NSIS 安装包
+- 生成 `latest.yml` 与 `SHA256SUMS.txt`
+- 上传安装包和更新所需附件到对应 Release
+
+预发布版本使用标准语义化版本标签，例如：
+
+```bash
+npm run release:create -- --tag v1.4.5-beta.1 --title "ZZ Record v1.4.5 beta.1" --prerelease --notes-file ./release-notes.md
+```
+
+## 重建已有版本
+
+如果 Release 已创建但云端构建失败，在 GitHub Actions 中手动运行 `Publish Release`，填写已有标签，例如 `v1.4.5`。工作流会从该标签检出源码并覆盖上传同名附件。
+
+## Release 附件
+
+每个 Windows Release 应包含：
 
 - `zz-Record-windows-x64.exe`
-
-## What the release workflow does
-
-When you publish a GitHub release tagged like `v1.3.5-custom`, `.github/workflows/release.yml` will:
-
-- validate that `package.json` matches the tag version
-- build the Windows NSIS installer
-- generate `latest.yml` and release checksums
-- upload the Windows installer assets to the GitHub release
-
-The packaged app then checks GitHub Releases for:
-
+- `zz-Record-windows-x64.exe.blockmap`
 - `latest.yml`
+- `SHA256SUMS.txt`
 
-### Windows signing
+安装包暂未代码签名。若配置了 `WINDOWS_SIGNING_CERTIFICATE_P12_BASE64` 与 `WINDOWS_SIGNING_CERTIFICATE_PASSWORD` 两个 GitHub Secrets，构建会使用对应的 Authenticode 证书签名。
 
-Set these repository secrets:
+## 本机构建
 
-- `WINDOWS_SIGNING_CERTIFICATE_P12_BASE64`
-- `WINDOWS_SIGNING_CERTIFICATE_PASSWORD`
-
-These should point to an Authenticode code-signing certificate exported as `.p12` and then base64-encoded.
-
-## Release flow
-
-1. Bump `package.json` to the version you want to ship.
-2. Commit and push that version.
-3. Create a Git tag in the form `vX.Y.Z-custom`.
-4. Create and publish a GitHub release for that tag. Prefer the helper so custom notes are prepended while GitHub still generates the contributor section:
+本机构建命令为：
 
 ```bash
-npm run release:create -- --tag v1.3.5-custom --title "zz-Record v1.3.5" --notes-file ./release-notes.md
+npm run build:win
 ```
 
-For prereleases:
-
-```bash
-npm run release:create -- --tag v1.3.5-beta.1-custom --title "zz-Record v1.3.5 beta-1" --prerelease --notes-file ./release-notes.md
-```
-
-This uses `gh release create --generate-notes`, which keeps GitHub's generated change summary and contributor list instead of replacing it with a fully manual release body.
-
-5. The `Publish Release` workflow builds, uploads, and publishes Windows update metadata.
-
-That is the normal path if you want “click new release and let CI do the rest.”
-
-## Rebuilding an existing release
-
-If you need to rerun publishing for an existing tag, use the manual dispatch for `.github/workflows/release.yml` and provide the existing tag.
-
-## Notes
-
-- The expected uploaded Windows assets are:
-  - `zz-Record-windows-x64.exe`
-  - `zz-Record-windows-x64.exe.blockmap`
-  - `latest.yml`
-  - `RELEASE_CHECKSUMS.txt`
-- The local Windows build command remains `npm run build:win`.
-- If the local `release/win-unpacked` directory is locked by a running process, either stop the packaged app first or build to a fresh output directory.
+构建产物在 `release/`，该目录被 Git 忽略。若 `release/win-unpacked` 被运行中的应用占用，请先退出应用再重建。
