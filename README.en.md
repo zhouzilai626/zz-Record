@@ -23,7 +23,7 @@ ZZ Record is a Windows screen recorder and editor for tutorials, demos, and work
 2. Run the installer.
 3. Select a display or window. Enable Microphone and/or System Audio before starting when sound is needed.
 
-The current installer is not code-signed. Windows SmartScreen may show a warning. Download only from this repository's Release page and verify the SHA-512 checksum published with the release.
+The current installer is not code-signed. Windows SmartScreen may show a warning. Download only from this repository's Release page and verify the SHA-256 checksum published with the release.
 
 ## Phone Camera
 

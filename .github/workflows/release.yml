@@ -62,7 +62,7 @@ jobs:
         run: npm run build:win
 
       - name: Write release checksums
-        run: node scripts/write-release-checksums.mjs RELEASE_CHECKSUMS.txt
+        run: node scripts/write-release-checksums.mjs SHA256SUMS.txt
 
       - name: Upload release assets
         shell: bash
@@ -71,5 +71,5 @@ jobs:
             ./release/zz-Record-windows-x64.exe \
             ./release/zz-Record-windows-x64.exe.blockmap \
             ./release/latest.yml \
-            ./release/RELEASE_CHECKSUMS.txt \
+            ./release/SHA256SUMS.txt \
             --clobber
