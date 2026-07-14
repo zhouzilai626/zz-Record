@@ -976,6 +976,37 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	phoneCameraGetFrame: (options?: { frameRequestId?: string }) =>
 		ipcRenderer.invoke("recordly-phone-camera:get-frame", options),
 	phoneCameraStop: () => ipcRenderer.invoke("recordly-phone-camera:stop"),
+	phoneCameraSuspendPreview: () => ipcRenderer.invoke("recordly-phone-camera:suspend-preview"),
+	cameraOverlayShowLocal: (options?: { excludeFromCapture?: boolean }) =>
+		ipcRenderer.invoke("recordly-camera-overlay:show-local", options),
+	cameraOverlayHideLocal: () => ipcRenderer.invoke("recordly-camera-overlay:hide-local"),
+	cameraOverlaySendLocalFrame: (frame: {
+		frameDataUrl: string;
+		width?: number;
+		height?: number;
+	}) => ipcRenderer.send("recordly-camera-overlay:local-frame", frame),
+	phoneCameraPrepareRecordingPreview: () =>
+		ipcRenderer.invoke("recordly-phone-camera:prepare-recording-preview"),
+	phoneCameraForget: () => ipcRenderer.invoke("recordly-phone-camera:forget"),
+	phoneCameraOverlayInteract: (
+		kind: "move" | "resize",
+		phase: "start" | "move" | "end",
+		screenX: number,
+		screenY: number,
+	) => ipcRenderer.send("phone-camera-overlay:interact", kind, phase, screenX, screenY),
+	phoneCameraOverlayResizeBy: (delta: number) =>
+		ipcRenderer.send("phone-camera-overlay:resize-by", delta),
+	phoneCameraOverlayResetSize: () => ipcRenderer.send("phone-camera-overlay:reset-size"),
+	onPhoneCameraFrame: (
+		callback: (frame: import("../src/lib/phoneCamera").PhoneCameraFramePayload) => void,
+	) => {
+		const listener = (
+			_event: Electron.IpcRendererEvent,
+			frame: import("../src/lib/phoneCamera").PhoneCameraFramePayload,
+		) => callback(frame);
+		ipcRenderer.on("recordly-phone-camera:frame", listener);
+		return () => ipcRenderer.removeListener("recordly-phone-camera:frame", listener);
+	},
 	onPhoneCameraStateChanged: (
 		callback: (state: import("../src/lib/phoneCamera").PhoneCameraState) => void,
 	) => {
@@ -996,35 +1027,4 @@ contextBridge.exposeInMainWorld("electronAPI", {
 		ipcRenderer.on("countdown-tick", listener);
 		return () => ipcRenderer.removeListener("countdown-tick", listener);
 	},
-
-	// ── Extensions ──────────────────────────────────────────────────────
-	extensionsDiscover: () => ipcRenderer.invoke("extensions:discover"),
-	extensionsList: () => ipcRenderer.invoke("extensions:list"),
-	extensionsGet: (id: string) => ipcRenderer.invoke("extensions:get", id),
-	extensionsEnable: (id: string) => ipcRenderer.invoke("extensions:enable", id),
-	extensionsDisable: (id: string) => ipcRenderer.invoke("extensions:disable", id),
-	extensionsInstallFromFolder: () => ipcRenderer.invoke("extensions:install-from-folder"),
-	extensionsUninstall: (id: string) => ipcRenderer.invoke("extensions:uninstall", id),
-	extensionsGetDirectory: () => ipcRenderer.invoke("extensions:get-directory"),
-	extensionsOpenDirectory: () => ipcRenderer.invoke("extensions:open-directory"),
-
-	// ── Extensions — Marketplace ────────────────────────────────────────
-	extensionsMarketplaceSearch: (params: {
-		query?: string;
-		tags?: string[];
-		sort?: string;
-		page?: number;
-		pageSize?: number;
-	}) => ipcRenderer.invoke("extensions:marketplace-search", params),
-	extensionsMarketplaceGet: (id: string) => ipcRenderer.invoke("extensions:marketplace-get", id),
-	extensionsMarketplaceInstall: (extensionId: string, downloadUrl: string) =>
-		ipcRenderer.invoke("extensions:marketplace-install", extensionId, downloadUrl),
-	extensionsMarketplaceSubmit: (extensionId: string) =>
-		ipcRenderer.invoke("extensions:marketplace-submit", extensionId),
-
-	// ── Extensions — Admin Review ───────────────────────────────────────
-	extensionsReviewsList: (params: { status?: string; page?: number; pageSize?: number }) =>
-		ipcRenderer.invoke("extensions:reviews-list", params),
-	extensionsReviewUpdate: (reviewId: string, status: string, notes?: string) =>
-		ipcRenderer.invoke("extensions:review-update", reviewId, status, notes),
 });

@@ -49,18 +49,8 @@ export function ExportSettingsMenu({
 	onExportFormatChange,
 	exportQuality,
 	onExportQualityChange,
-	exportEncodingMode,
-	onExportEncodingModeChange,
 	mp4FrameRate,
 	onMp4FrameRateChange,
-	exportPipelineModel = "modern",
-	onExportPipelineModelChange,
-	experimentalNvidiaCudaExport = false,
-	onExperimentalNvidiaCudaExportChange,
-	nvidiaCudaExportAvailable = false,
-	showCaptionSidecarOption = false,
-	includeCaptionSidecar = false,
-	onIncludeCaptionSidecarChange,
 	mp4OutputDimensions,
 	gifFrameRate,
 	onGifFrameRateChange,
@@ -73,8 +63,6 @@ export function ExportSettingsMenu({
 	className,
 }: ExportSettingsMenuProps) {
 	const tSettings = useScopedT("settings");
-	const isLegacyModel = exportPipelineModel === "legacy";
-
 	return (
 		<div
 			className={cn(
@@ -187,59 +175,6 @@ export function ExportSettingsMenu({
 					</div>
 					<div className="mb-1 flex items-center justify-between px-1">
 						<span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
-							{tSettings("export.encodingTitle", "Encoding")}
-						</span>
-					</div>
-					<div className="mb-3 grid min-h-10 w-full grid-cols-3 rounded-xl border border-foreground/5 bg-foreground/5 p-0.5">
-						{(
-							[
-								{ value: "fast", label: tSettings("export.encoding.fast", "Fast") },
-								{
-									value: "balanced",
-									label: tSettings("export.encoding.balanced", "Balanced"),
-								},
-								{
-									value: "quality",
-									label: tSettings("export.encoding.quality", "Quality"),
-								},
-							] as const
-						).map((option) => {
-							const isActive = exportEncodingMode === option.value;
-							return (
-								<button
-									key={option.value}
-									type="button"
-									onClick={() => onExportEncodingModeChange?.(option.value)}
-									aria-pressed={isActive}
-									className="relative rounded-lg px-1 py-1 text-[11px] font-medium transition-colors"
-								>
-									{isActive ? (
-										<motion.span
-											layoutId="header-export-encoding-pill"
-										className="absolute inset-0 rounded-lg bg-neutral-800 dark:bg-white"
-											transition={{
-												type: "spring",
-												stiffness: 420,
-												damping: 34,
-											}}
-										/>
-									) : null}
-									<span
-										className={cn(
-											"relative z-10",
-											isActive
-												? "text-white dark:text-black"
-												: "text-muted-foreground hover:text-foreground",
-										)}
-									>
-										{option.label}
-									</span>
-								</button>
-							);
-						})}
-					</div>
-					<div className="mb-1 flex items-center justify-between px-1">
-						<span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
 							{tSettings("export.fpsTitle", "FPS")}
 						</span>
 					</div>
@@ -279,122 +214,6 @@ export function ExportSettingsMenu({
 							);
 						})}
 					</div>
-					<div className="mb-1 flex items-center justify-between px-1">
-						<span className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
-							{tSettings("export.pipelineTitle", "Pipeline")}
-						</span>
-					</div>
-					<div className="mb-3 grid min-h-10 w-full grid-cols-2 rounded-xl border border-foreground/5 bg-foreground/5 p-0.5">
-						{(
-							[
-								{
-									value: "legacy",
-									label: tSettings("export.pipeline.legacy", "Legacy"),
-								},
-								{
-									value: "modern",
-									label: tSettings("export.pipeline.modern", "Lightning (Beta)"),
-								},
-							] as const
-						).map((option) => {
-							const isActive = exportPipelineModel === option.value;
-							return (
-								<button
-									key={option.value}
-									type="button"
-									onClick={() => onExportPipelineModelChange?.(option.value)}
-									aria-pressed={isActive}
-									className="relative rounded-lg px-1 py-1 text-[11px] font-medium transition-colors"
-								>
-									{isActive ? (
-										<motion.span
-											layoutId="header-export-pipeline-pill"
-										className="absolute inset-0 rounded-lg bg-neutral-800 dark:bg-white"
-											transition={{
-												type: "spring",
-												stiffness: 420,
-												damping: 34,
-											}}
-										/>
-									) : null}
-									<span
-										className={cn(
-											"relative z-10",
-											isActive
-												? "text-white dark:text-black"
-												: "text-muted-foreground hover:text-foreground",
-										)}
-									>
-										{option.label}
-									</span>
-								</button>
-							);
-						})}
-					</div>
-					<p className="mb-3 px-1 text-[10px] text-muted-foreground/70">
-						{isLegacyModel
-							? tSettings(
-									"export.pipeline.legacyHint",
-									"Legacy uses the current stable WebCodecs export path.",
-								)
-							: tSettings(
-									"export.pipeline.lightningHint",
-									"Lightning (Beta) automatically uses the fastest compatible backend and falls back when needed.",
-								)}
-					</p>
-					{!isLegacyModel && nvidiaCudaExportAvailable ? (
-						<div className="mb-3 flex min-h-12 items-center justify-between gap-3 rounded-lg border border-[#2563EB]/20 bg-[#2563EB]/5 px-3 py-2">
-							<div className="min-w-0">
-								<div className="flex items-center gap-1.5">
-									<span className="text-[11px] font-semibold text-foreground">
-										{tSettings("export.nvidiaCuda.title", "NVIDIA CUDA")}
-									</span>
-									<span className="rounded bg-[#2563EB]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#2563EB]">
-										{tSettings("export.nvidiaCuda.badge", "Experimental")}
-									</span>
-								</div>
-								<p className="mt-0.5 truncate text-[10px] text-muted-foreground/75">
-									{tSettings(
-										"export.nvidiaCuda.hint",
-										"Try GPU export on this Windows device.",
-									)}
-								</p>
-							</div>
-							<Switch
-								checked={experimentalNvidiaCudaExport}
-								onCheckedChange={onExperimentalNvidiaCudaExportChange}
-								aria-label={tSettings(
-									"export.nvidiaCuda.toggle",
-									"Enable experimental NVIDIA CUDA export",
-								)}
-								className="shrink-0 scale-75 data-[state=checked]:bg-[#2563EB]"
-							/>
-						</div>
-					) : null}
-					{showCaptionSidecarOption ? (
-						<div className="mb-3 flex min-h-12 items-center justify-between gap-3 rounded-lg border border-foreground/10 bg-foreground/5 px-3 py-2">
-							<div className="min-w-0">
-								<p className="text-[11px] font-semibold text-foreground">
-									{tSettings("export.captionSidecar.title", "Export captions file")}
-								</p>
-								<p className="mt-0.5 truncate text-[10px] text-muted-foreground/75">
-									{tSettings(
-										"export.captionSidecar.hint",
-										"Save .srt and .vtt files next to your exported video.",
-									)}
-								</p>
-							</div>
-							<Switch
-								checked={includeCaptionSidecar}
-								onCheckedChange={onIncludeCaptionSidecarChange}
-								aria-label={tSettings(
-									"export.captionSidecar.toggle",
-									"Export captions sidecar files",
-								)}
-								className="shrink-0 scale-75 data-[state=checked]:bg-[#2563EB]"
-							/>
-						</div>
-					) : null}
 				</LayoutGroup>
 			) : (
 				<div className="mb-3 space-y-2">

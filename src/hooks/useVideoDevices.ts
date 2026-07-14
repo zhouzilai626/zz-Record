@@ -8,6 +8,22 @@ export interface VideoDevice {
 
 let hasRequestedVideoLabels = false;
 
+export function getVideoDeviceDisplayLabel(label: string, index: number): string {
+	const normalizedLabel = label.trim();
+	if (!normalizedLabel) {
+		return `摄像头 ${index + 1}`;
+	}
+
+	if (/^HD User Facing(?:\s*\([^)]*\))?$/i.test(normalizedLabel)) {
+		return "内置摄像头";
+	}
+
+	if (/^OBS Virtual Camera$/i.test(normalizedLabel)) {
+		return "OBS 虚拟摄像头";
+	}
+
+	return normalizedLabel;
+}
 export function useVideoDevices(enabled: boolean = true) {
 	const [devices, setDevices] = useState<VideoDevice[]>([]);
 	const [selectedDeviceId, setSelectedDeviceId] = useState<string>("default");
@@ -37,7 +53,7 @@ export function useVideoDevices(enabled: boolean = true) {
 					.filter((device) => device.kind === "videoinput")
 					.map((device, index) => ({
 						deviceId: device.deviceId,
-						label: device.label || `Camera ${index + 1}`,
+						label: getVideoDeviceDisplayLabel(device.label, index),
 						groupId: device.groupId,
 					}));
 
@@ -54,7 +70,7 @@ export function useVideoDevices(enabled: boolean = true) {
 						.filter((device) => device.kind === "videoinput")
 						.map((device, index) => ({
 							deviceId: device.deviceId,
-							label: device.label || `Camera ${index + 1}`,
+							label: getVideoDeviceDisplayLabel(device.label, index),
 							groupId: device.groupId,
 						}));
 					hasRequestedVideoLabels = true;

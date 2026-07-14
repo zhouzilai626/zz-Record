@@ -22,10 +22,10 @@ type UpdateToastPayload = {
 
 const DEFAULT_REMINDER_DELAY_MS = 3 * 60 * 60 * 1000;
 const REMINDER_OPTIONS = [
-	{ label: "1 hour", value: 1 * 60 * 60 * 1000 },
-	{ label: "3 hours", value: 3 * 60 * 60 * 1000 },
-	{ label: "Tomorrow", value: 24 * 60 * 60 * 1000 },
-	{ label: "3 days", value: 3 * 24 * 60 * 60 * 1000 },
+	{ label: "1 小时后", value: 1 * 60 * 60 * 1000 },
+	{ label: "3 小时后", value: 3 * 60 * 60 * 1000 },
+	{ label: "明天", value: 24 * 60 * 60 * 1000 },
+	{ label: "3 天后", value: 3 * 24 * 60 * 60 * 1000 },
 ];
 
 function formatBytes(value: number | undefined) {
@@ -48,20 +48,20 @@ function getToastTitle(payload: UpdateToastPayload) {
 
 	switch (payload.phase) {
 		case "available":
-			return `Recordly ${payload.version} is available`;
+			return `ZZ Record ${payload.version} 可更新`;
 		case "downloading":
-			return `Installing Recordly ${payload.version}`;
+			return `正在安装 ZZ Record ${payload.version}`;
 		case "ready":
-			return `Recordly ${payload.version} is ready`;
+			return `ZZ Record ${payload.version} 已准备就绪`;
 		case "error":
 			return payload.primaryAction === "retry-check"
-				? "Could not check for updates"
-				: `Recordly ${payload.version} needs attention`;
+				? "无法检查更新"
+				: `ZZ Record ${payload.version} 需要处理`;
 	}
 }
 
 function getPrimaryButtonLabel(payload: UpdateToastPayload) {
-	return payload.primaryAction === "retry-check" ? "Try Again" : "Install & Restart";
+	return payload.primaryAction === "retry-check" ? "重试" : "安装并重启";
 }
 
 function getPhaseIcon(payload: UpdateToastPayload) {
@@ -131,15 +131,15 @@ export function UpdateToastWindow() {
 	const phaseStats: Array<{ label: string; value: string }> = [];
 	if (payload?.phase === "downloading") {
 		if (downloadedLabel && totalLabel) {
-			phaseStats.push({ label: "Downloaded", value: `${downloadedLabel} / ${totalLabel}` });
+			phaseStats.push({ label: "已下载", value: `${downloadedLabel} / ${totalLabel}` });
 		} else if (downloadedLabel) {
-			phaseStats.push({ label: "Downloaded", value: downloadedLabel });
+			phaseStats.push({ label: "已下载", value: downloadedLabel });
 		}
 		if (remainingLabel) {
-			phaseStats.push({ label: "Left", value: remainingLabel });
+			phaseStats.push({ label: "剩余", value: remainingLabel });
 		}
 		if (speedLabel) {
-			phaseStats.push({ label: "Speed", value: `${speedLabel}/s` });
+			phaseStats.push({ label: "速度", value: `${speedLabel}/s` });
 		}
 	}
 
@@ -326,7 +326,7 @@ export function UpdateToastWindow() {
 										color: "#dbeafe",
 									}}
 								>
-									{normalizedProgress}% complete
+									{normalizedProgress}% 已完成
 								</span>
 								{phaseStats.map((stat) => (
 									<span

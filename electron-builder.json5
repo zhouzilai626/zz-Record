@@ -10,7 +10,7 @@
     "node_modules/uiohook-napi/**",
     "electron/native/**"
   ],
-  "productName": "zz Record",
+  "productName": "ZZ Record",
   "npmRebuild": true,
   "buildDependenciesFromSource": true,
   "compression": "normal",
@@ -107,7 +107,7 @@
     ],
     "icon": "icons/icons/win/icon.ico"
     ,
-    "executableName": "zz-Record",
+    "executableName": "ZZ Record",
     "artifactName": "zz-Record-windows-${arch}.${ext}"
   }
 }

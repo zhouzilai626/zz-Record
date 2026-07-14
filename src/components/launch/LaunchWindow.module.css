@@ -95,8 +95,6 @@
 	color: #4eeeb0;
 }
 
-
-
 .menuCard {
 	width: 300px;
 	max-height: 400px;
@@ -276,6 +274,42 @@
 
 .recordingWebcamPreview:active {
 	cursor: grabbing;
+}
+
+.recordingWebcamPreviewControls {
+	position: absolute;
+	right: 8px;
+	bottom: 8px;
+	display: flex;
+	overflow: hidden;
+	border: 1px solid rgba(255, 255, 255, 0.45);
+	border-radius: 6px;
+	background: rgba(15, 23, 42, 0.82);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.32);
+	z-index: 1;
+}
+
+.recordingWebcamPreviewControl {
+	width: 30px;
+	height: 30px;
+	padding: 0;
+	border: 0;
+	border-right: 1px solid rgba(255, 255, 255, 0.25);
+	background: transparent;
+	color: #fff;
+	font:
+		600 16px / 1 system-ui,
+		sans-serif;
+	cursor: pointer;
+	-webkit-app-region: no-drag;
+}
+
+.recordingWebcamPreviewControl:last-child {
+	border-right: 0;
+}
+
+.recordingWebcamPreviewControl:hover {
+	background: rgba(255, 255, 255, 0.16);
 }
 
 .recordingWebcamPreviewVideo {

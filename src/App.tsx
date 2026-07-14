@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CountdownOverlay } from "./components/countdown/CountdownOverlay";
 import { LaunchWindow } from "./components/launch/LaunchWindow";
+import { PhoneCameraPairingWindow } from "./components/phone-camera/PhoneCameraPairingWindow";
 import { SourceSelector } from "./components/launch/SourceSelector";
 import { UpdateToastWindow } from "./components/launch/UpdateToastWindow";
 import { Toaster } from "./components/ui/sonner";
@@ -52,8 +53,8 @@ export default function App() {
 	useEffect(() => {
 		document.title =
 			windowType === "editor"
-				? t("app.editorTitle", "Recordly Editor")
-				: t("app.name", "Recordly");
+				? t("app.editorTitle", "ZZ Record Editor")
+				: t("app.name", "ZZ Record");
 	}, [windowType, t]);
 
 	switch (windowType) {
@@ -68,6 +69,8 @@ export default function App() {
 			return <SourceSelector />;
 		case "countdown":
 			return <CountdownOverlay />;
+		case "phone-camera-pairing":
+			return <PhoneCameraPairingWindow />;
 		case "update-toast":
 			return <UpdateToastWindow />;
 		case "editor":
@@ -83,12 +86,12 @@ export default function App() {
 					<div className="flex items-center gap-4 rounded-2xl border border-foreground/10 bg-foreground/5 px-6 py-5 shadow-2xl shadow-black/30 backdrop-blur-xl">
 						<img
 							src={appIconSrc}
-							alt={t("app.name", "Recordly")}
+							alt={t("app.name", "ZZ Record")}
 							className="h-12 w-12 rounded-xl"
 						/>
 						<div>
 							<h1 className="text-xl font-semibold tracking-tight">
-								{t("app.name", "Recordly")}
+								{t("app.name", "ZZ Record")}
 							</h1>
 							<p className="text-sm text-foreground/65">
 								{t("app.subtitle", "Screen recording and editing")}

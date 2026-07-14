@@ -1,16 +1,29 @@
-import os from "node:os";
+import fs from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { BrowserWindow, ipcMain } from "electron";
+import { createServer as createHttpsServer } from "node:https";
+import os from "node:os";
+import path from "node:path";
+import forge from "node-forge";
+import { USER_DATA_PATH } from "./appPaths";
+import { choosePreferredLanAddress } from "./phoneCameraLanAddress";
+import { RequestBodyTooLargeError, readJsonBody } from "./phoneCameraRequestLimits";
 
 let bridgeBaseUrl: string | null = null;
+let bridgeSetupBaseUrl: string | null = null;
 let bridgeStartPromise: Promise<string> | null = null;
-let currentSessionResolver: (() => {
-	sessionId?: string;
-	pairingCode?: string;
-	pairingUrl?: string;
-}) | null = null;
+let currentSessionResolver:
+	| (() => {
+			sessionId?: string;
+			pairingCode?: string;
+			pairingUrl?: string;
+	  })
+	| null = null;
 let connectCallback:
-	| ((payload: { sessionId: string; pairingCode: string; remoteAddress?: string | null }) => boolean)
+	| ((payload: {
+			sessionId: string;
+			pairingCode: string;
+			remoteAddress?: string | null;
+	  }) => boolean)
 	| null = null;
 let frameCallback:
 	| ((payload: {
@@ -24,35 +37,159 @@ let frameCallback:
 	  }) => boolean)
 	| null = null;
 
-// WebRTC signaling state
-let webrtcOffer: string | null = null;
-let webrtcAnswer: string | null = null;
-let webrtcIceFromOverlay: unknown[] = [];
-let webrtcIceFromPhone: unknown[] = [];
-let answerPollTimer: NodeJS.Timeout | undefined;
-let answerReadyResolver: (() => void) | null = null;
-
-const PHONE_CAMERA_WEBRTC_SIGNAL_CHANNEL = "recordly-phone-camera:webrtc-signal";
-
-function broadcastWebrtcSignal(signal: unknown): void {
-	for (const win of BrowserWindow.getAllWindows()) {
-		if (!win.isDestroyed()) {
-			win.webContents.send(PHONE_CAMERA_WEBRTC_SIGNAL_CHANNEL, signal);
-		}
-	}
-}
+const PHONE_CAMERA_HTTPS_PORT = 17885;
+const PHONE_CAMERA_SETUP_PORT = 17886;
+const PHONE_CAMERA_CONNECT_BODY_MAX_BYTES = 16 * 1024;
+const PHONE_CAMERA_FRAME_BODY_MAX_BYTES = 2 * 1024 * 1024;
+const PHONE_CAMERA_FRAME_DATA_URL_MAX_LENGTH = PHONE_CAMERA_FRAME_BODY_MAX_BYTES - 16 * 1024;
+const PHONE_CAMERA_FRAME_MAX_DIMENSION = 1_920;
+const PHONE_CAMERA_FRAME_MAX_PIXELS = 1_920 * 1_080;
 
 function getPreferredLanAddress(): string {
-	const interfaces = os.networkInterfaces();
-	for (const entries of Object.values(interfaces)) {
-		for (const entry of entries ?? []) {
-			if (entry.family === "IPv4" && !entry.internal) {
-				return entry.address;
-			}
+	return choosePreferredLanAddress(os.networkInterfaces());
+}
+
+const PHONE_CAMERA_CERT_DIR = path.join(USER_DATA_PATH, "phone-camera-certificates");
+const PHONE_CAMERA_CA_CERT_PATH = path.join(PHONE_CAMERA_CERT_DIR, "zz-record-local-ca.cer");
+const PHONE_CAMERA_CA_KEY_PATH = path.join(PHONE_CAMERA_CERT_DIR, "zz-record-local-ca-key.pem");
+const PHONE_CAMERA_CA_PEM_PATH = path.join(PHONE_CAMERA_CERT_DIR, "zz-record-local-ca.pem");
+const PHONE_CAMERA_SERVER_CERT_PATH = path.join(PHONE_CAMERA_CERT_DIR, "phone-camera-server.pem");
+const PHONE_CAMERA_SERVER_KEY_PATH = path.join(
+	PHONE_CAMERA_CERT_DIR,
+	"phone-camera-server-key.pem",
+);
+const PHONE_CAMERA_SERVER_METADATA_PATH = path.join(
+	PHONE_CAMERA_CERT_DIR,
+	"phone-camera-server.json",
+);
+
+type CertificateAuthority = {
+	certificate: forge.pki.Certificate;
+	privateKey: forge.pki.rsa.PrivateKey;
+};
+
+function createCertificateSerialNumber(): string {
+	return forge.util.bytesToHex(forge.random.getBytesSync(16));
+}
+
+function setCertificateValidity(certificate: forge.pki.Certificate, years: number): void {
+	const now = new Date();
+	certificate.validity.notBefore = new Date(now.getTime() - 60_000);
+	certificate.validity.notAfter = new Date(now);
+	certificate.validity.notAfter.setFullYear(now.getFullYear() + years);
+}
+
+function loadOrCreatePhoneCameraCertificateAuthority(): CertificateAuthority {
+	fs.mkdirSync(PHONE_CAMERA_CERT_DIR, { recursive: true });
+
+	try {
+		if (fs.existsSync(PHONE_CAMERA_CA_PEM_PATH) && fs.existsSync(PHONE_CAMERA_CA_KEY_PATH)) {
+			return {
+				certificate: forge.pki.certificateFromPem(
+					fs.readFileSync(PHONE_CAMERA_CA_PEM_PATH, "utf8"),
+				),
+				privateKey: forge.pki.privateKeyFromPem(
+					fs.readFileSync(PHONE_CAMERA_CA_KEY_PATH, "utf8"),
+				),
+			};
 		}
+	} catch {
+		// Regenerate a locally scoped CA if its persisted material is unreadable.
 	}
 
-	return "127.0.0.1";
+	const keys = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 });
+	const certificate = forge.pki.createCertificate();
+	certificate.publicKey = keys.publicKey;
+	certificate.serialNumber = createCertificateSerialNumber();
+	setCertificateValidity(certificate, 10);
+	const subject = [
+		{ name: "commonName", value: "ZZ Record Local Camera CA" },
+		{ name: "organizationName", value: "ZZ Record" },
+	];
+	certificate.setSubject(subject);
+	certificate.setIssuer(subject);
+	certificate.setExtensions([
+		{ name: "basicConstraints", critical: true, cA: true },
+		{
+			name: "keyUsage",
+			critical: true,
+			keyCertSign: true,
+			cRLSign: true,
+			digitalSignature: true,
+		},
+	]);
+	certificate.sign(keys.privateKey, forge.md.sha256.create());
+
+	fs.writeFileSync(PHONE_CAMERA_CA_KEY_PATH, forge.pki.privateKeyToPem(keys.privateKey), "utf8");
+	fs.writeFileSync(PHONE_CAMERA_CA_PEM_PATH, forge.pki.certificateToPem(certificate), "utf8");
+	fs.writeFileSync(
+		PHONE_CAMERA_CA_CERT_PATH,
+		Buffer.from(
+			forge.asn1.toDer(forge.pki.certificateToAsn1(certificate)).getBytes(),
+			"binary",
+		),
+	);
+
+	return { certificate, privateKey: keys.privateKey };
+}
+
+function loadOrCreatePhoneCameraServerCertificate(
+	lanAddress: string,
+	certificateAuthority: CertificateAuthority,
+): { cert: string; key: string } {
+	try {
+		const metadata = JSON.parse(fs.readFileSync(PHONE_CAMERA_SERVER_METADATA_PATH, "utf8")) as {
+			lanAddress?: unknown;
+		};
+		if (
+			metadata.lanAddress === lanAddress &&
+			fs.existsSync(PHONE_CAMERA_SERVER_CERT_PATH) &&
+			fs.existsSync(PHONE_CAMERA_SERVER_KEY_PATH)
+		) {
+			return {
+				cert: fs.readFileSync(PHONE_CAMERA_SERVER_CERT_PATH, "utf8"),
+				key: fs.readFileSync(PHONE_CAMERA_SERVER_KEY_PATH, "utf8"),
+			};
+		}
+	} catch {
+		// The current network address needs a new leaf certificate.
+	}
+
+	const keys = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 });
+	const certificate = forge.pki.createCertificate();
+	certificate.publicKey = keys.publicKey;
+	certificate.serialNumber = createCertificateSerialNumber();
+	setCertificateValidity(certificate, 2);
+	certificate.setSubject([{ name: "commonName", value: lanAddress }]);
+	certificate.setIssuer(certificateAuthority.certificate.subject.attributes);
+	certificate.setExtensions([
+		{ name: "basicConstraints", critical: true, cA: false },
+		{ name: "keyUsage", critical: true, digitalSignature: true, keyEncipherment: true },
+		{ name: "extKeyUsage", serverAuth: true },
+		{ name: "subjectAltName", altNames: [{ type: 7, ip: lanAddress }] },
+	]);
+	certificate.sign(certificateAuthority.privateKey, forge.md.sha256.create());
+
+	const credentials = {
+		cert: forge.pki.certificateToPem(certificate),
+		key: forge.pki.privateKeyToPem(keys.privateKey),
+	};
+	fs.writeFileSync(PHONE_CAMERA_SERVER_CERT_PATH, credentials.cert, "utf8");
+	fs.writeFileSync(PHONE_CAMERA_SERVER_KEY_PATH, credentials.key, "utf8");
+	fs.writeFileSync(
+		PHONE_CAMERA_SERVER_METADATA_PATH,
+		JSON.stringify({ lanAddress }, null, 2),
+		"utf8",
+	);
+	return credentials;
+}
+
+function renderCertificateSetupPage(secureUrl: string, healthUrl: string): string {
+	return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>ZZ Record 手机摄像头</title>
+<style>body{margin:0;background:#07111f;color:#f8fafc;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.page{max-width:560px;margin:0 auto;padding:40px 24px}h1{font-size:28px;line-height:1.25}p,li{color:#cbd5e1}.card{margin:24px 0;padding:20px;border:1px solid #28415f;border-radius:14px;background:#0d1b2a}a{display:block;margin-top:14px;padding:13px 16px;border-radius:10px;background:#2563eb;color:#fff;text-align:center;text-decoration:none;font-weight:700}.secondary{background:#1e293b}.note{font-size:14px;color:#94a3b8}.setup-card{display:none}body.needs-setup .setup-card{display:block}body.needs-setup #connecting{display:none}</style>
+</head><body><main class="page"><div id="connecting"><h1>正在打开手机摄像头</h1><p>正在验证本机安全连接...</p></div><section class="card setup-card"><h1>信任本机证书</h1><p>手机浏览器只允许在 HTTPS 页面使用摄像头。此证书仅用于当前电脑的局域网摄像头连接，视频不会上传到互联网。</p><strong>首次使用</strong><ol><li>下载并安装证书。</li><li>iPhone: 在“设置 - 已下载描述文件”安装后，到“通用 - 关于本机 - 证书信任设置”启用完全信任。</li><li>Android: 下载后按系统提示安装为 CA 证书。</li><li>返回这里，打开安全摄像头页并允许摄像头权限。</li></ol><a href="/phone-camera-ca.cer">下载本机证书</a><a class="secondary" href=${JSON.stringify(secureUrl)}>我已安装证书，打开安全摄像头页</a></section><p class="note setup-card">证书只需在这台手机上安装一次。更换电脑或清除 ZZ Record 数据后需要重新安装。</p></main><script>const secureUrl=${JSON.stringify(secureUrl)};const healthUrl=${JSON.stringify(healthUrl)};let settled=false;const showSetup=()=>{if(settled)return;settled=true;document.body.classList.add('needs-setup')};const timeout=window.setTimeout(showSetup,1500);fetch(healthUrl,{cache:'no-store',mode:'cors'}).then((response)=>{if(!response.ok)throw new Error('HTTPS health check failed');settled=true;window.clearTimeout(timeout);window.location.replace(secureUrl)}).catch(()=>{window.clearTimeout(timeout);showSetup()});</script></body></html>`;
 }
 
 function renderBridgePage(params: {
@@ -69,7 +206,7 @@ function renderBridgePage(params: {
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<title>Recordly Phone Camera</title>
+<title>ZZ Record 手机摄像头</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { width: 100%; height: 100%; overflow: hidden; background: #000; touch-action: none; }
@@ -128,7 +265,7 @@ video#preview {
 <div id="ui-overlay">
   <div id="status-bar">
     <span id="status-dot"></span>
-    <span id="status-text">已连接 - Recordly</span>
+    <span id="status-text">已连接 - ZZ Record</span>
   </div>
   <div id="actions">
     <button class="action-btn" id="switch-btn" title="切换摄像头">
@@ -152,11 +289,14 @@ const switchBtn = document.getElementById('switch-btn');
 const disconnectBtn = document.getElementById('disconnect-btn');
 const sessionId = ${JSON.stringify(sessionId)};
 const pairingCode = ${JSON.stringify(pairingCode)};
-let pc = null;
 let cameraStream = null;
 let wakeLock = null;
 let facingMode = 'environment';
 let overlayTimer = null;
+let frameUploadTimer = null;
+let frameUploadInFlight = false;
+const frameCanvas = document.createElement('canvas');
+const frameContext = frameCanvas.getContext('2d', { alpha: false });
 
 function showOverlay() {
   uiOverlay.classList.add('visible');
@@ -186,7 +326,7 @@ async function startCamera(facing) {
       audio: false
     });
     preview.srcObject = cameraStream;
-    setStatus('已连接 - Recordly', 'connected');
+    setStatus('已连接 - ZZ Record', 'connected');
     return cameraStream;
   } catch (err) {
     console.error('Camera error:', err);
@@ -206,117 +346,175 @@ async function switchCamera() {
   facingMode = facingMode === 'environment' ? 'user' : 'environment';
   setStatus('切换摄像头...', 'connecting');
   try {
-    const newStream = await startCamera(facingMode);
-    if (pc) {
-      const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
-      if (sender) {
-        const newTrack = newStream.getVideoTracks()[0];
-        sender.replaceTrack(newTrack);
-      }
-    }
-    setStatus('已连接 - Recordly', 'connected');
+    await startCamera(facingMode);
+    setStatus('已连接 - ZZ Record', 'connected');
   } catch(e) {
     facingMode = facingMode === 'environment' ? 'user' : 'environment';
     showError('切换摄像头失败');
   }
 }
 
-async function startSignaling() {
+let reconnectTimer = null;
+let reconnectInFlight = false;
+let shouldReconnect = true;
+
+function stopFrameUpload() {
+  if (frameUploadTimer) clearInterval(frameUploadTimer);
+  frameUploadTimer = null;
+}
+
+function scheduleReconnect() {
+  if (!shouldReconnect || reconnectTimer) return;
+  stopFrameUpload();
+  setStatus('等待电脑重新打开...', 'connecting');
+  errorMsg.style.display = 'none';
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    void connectAndStartFrameUpload();
+  }, 2000);
+}
+
+async function connectAndStartFrameUpload() {
+  if (!shouldReconnect || reconnectInFlight) return;
+  reconnectInFlight = true;
   try {
-    const videoTrack = cameraStream.getVideoTracks()[0];
-    if (!videoTrack) throw new Error('No video track');
-    pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' }
-      ]
-    });
-    pc.addTrack(videoTrack, cameraStream);
-    pc.onicecandidate = async (event) => {
-      if (event.candidate) {
-        try {
-          await fetch('/api/webrtc-ice', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(event.candidate)
-          });
-        } catch(e) {}
-      }
-    };
-    pc.onconnectionstatechange = () => {
-      console.log('[phone] PC state:', pc.connectionState);
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        setStatus('连接中断', 'error');
-      }
-    };
-    const offer = await pc.createOffer({ offerToReceiveVideo: false, offerToReceiveAudio: false });
-    await pc.setLocalDescription(offer);
-    const offerResp = await fetch('/api/webrtc-offer', {
+    const response = await fetch('/phone-camera/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'offer', sdp: pc.localDescription })
+      body: JSON.stringify({ sessionId, pairingCode })
     });
-    let answerData = null;
-    while (!answerData) {
-      const resp = await fetch('/api/webrtc-answer', { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-      const data = await resp.json();
-      if (data.type === 'answer' && data.sdp) { answerData = data; break; }
-      await new Promise(r => setTimeout(r, 300));
+    if (response.status === 410) {
+      const error = new Error('此配对已被电脑端取消，请重新扫码连接。');
+      error.permanent = true;
+      throw error;
     }
-    if (answerData) {
-      await pc.setRemoteDescription(new RTCSessionDescription(answerData.sdp));
-      console.log('[phone] Remote description set');
+    if (!response.ok) throw new Error('电脑暂时不可用。');
+
+    startFrameUpload();
+    errorMsg.style.display = 'none';
+    setStatus('已连接 - ZZ Record', 'connected');
+  } catch (error) {
+    if (error && error.permanent) {
+      shouldReconnect = false;
+      setStatus('需要重新配对', 'error');
+      showError(error.message);
+    } else {
+      scheduleReconnect();
     }
-    setStatus('已连接 - Recordly', 'connected');
-    async function pollIce() {
-      while (pc && pc.connectionState !== 'failed') {
-        try {
-          const resp = await fetch('/api/webrtc-ice', { method: 'GET', headers: { 'Content-Type': 'application/json' } });
-          const candidates = await resp.json();
-          if (Array.isArray(candidates)) {
-            for (const c of candidates) {
-              try { if (c && c.candidate) await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(e) {}
-            }
-          }
-        } catch(e) {}
-        await new Promise(r => setTimeout(r, 500));
-      }
-    }
-    pollIce();
-  } catch (err) {
-    console.error('[phone] Failed to start:', err);
-    setStatus('连接失败', 'error');
+  } finally {
+    reconnectInFlight = false;
+  }
+}
+
+function startFrameUpload() {
+  stopFrameUpload();
+  void uploadFrame();
+  frameUploadTimer = setInterval(() => { void uploadFrame(); }, 125);
+}
+
+async function uploadFrame() {
+  if (frameUploadInFlight || !cameraStream || !frameContext || preview.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+
+  const sourceWidth = preview.videoWidth;
+  const sourceHeight = preview.videoHeight;
+  if (!sourceWidth || !sourceHeight) return;
+
+  const width = Math.min(sourceWidth, 960);
+  const height = Math.max(1, Math.round(sourceHeight * width / sourceWidth));
+  frameCanvas.width = width;
+  frameCanvas.height = height;
+  frameContext.drawImage(preview, 0, 0, width, height);
+
+  frameUploadInFlight = true;
+  try {
+    const response = await fetch('/phone-camera/frame', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionId,
+        pairingCode,
+        frameDataUrl: frameCanvas.toDataURL('image/jpeg', 0.72),
+        width,
+        height,
+        capturedAtMs: Date.now()
+      })
+    });
+    if (!response.ok) throw new Error('电脑端未接受画面。');
+  } catch (_error) {
+    scheduleReconnect();
+  } finally {
+    frameUploadInFlight = false;
   }
 }
 
 function disconnect() {
-  if (pc) pc.close();
+  shouldReconnect = false;
+  stopFrameUpload();
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = null;
   if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
   if (wakeLock) { wakeLock.release(); wakeLock = null; }
-  pc = null; cameraStream = null;
+  cameraStream = null;
   preview.srcObject = null;
 }
 switchBtn.addEventListener('click', (e) => { e.stopPropagation(); switchCamera(); });
 disconnectBtn.addEventListener('click', (e) => { e.stopPropagation(); disconnect(); });
-startCamera(facingMode).then(() => startSignaling());
+startCamera(facingMode).then(() => { void connectAndStartFrameUpload(); }).catch((error) => {
+  shouldReconnect = false;
+  setStatus('连接失败', 'error');
+  showError(error.message || '无法连接到电脑。');
+});
 window.addEventListener('beforeunload', () => { disconnect(); });
 </script>
 </body>
 </html>`;
 }
 
-async function readJsonBody(request: IncomingMessage): Promise<unknown> {
-	const chunks: Buffer[] = [];
-	for await (const chunk of request) {
-		chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-	}
-	if (chunks.length === 0) {
-		return null;
-	}
-	return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+function hasValidPhoneCameraFrameDimensions(width: unknown, height: unknown): boolean {
+	return (
+		typeof width === "number" &&
+		typeof height === "number" &&
+		Number.isInteger(width) &&
+		Number.isInteger(height) &&
+		width > 0 &&
+		height > 0 &&
+		width <= PHONE_CAMERA_FRAME_MAX_DIMENSION &&
+		height <= PHONE_CAMERA_FRAME_MAX_DIMENSION &&
+		width * height <= PHONE_CAMERA_FRAME_MAX_PIXELS
+	);
 }
 
-async function handleBridgeRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+function handlePhoneCameraSetupRequest(request: IncomingMessage, response: ServerResponse): void {
+	const base = bridgeSetupBaseUrl ?? "http://127.0.0.1";
+	const url = new URL(request.url ?? "/", base);
+
+	if (url.pathname === "/phone-camera-ca.cer" && request.method === "GET") {
+		response.writeHead(200, {
+			"Content-Type": "application/x-x509-ca-cert",
+			"Content-Disposition": "attachment; filename=zz-record-local-camera-ca.cer",
+		});
+		response.end(fs.readFileSync(PHONE_CAMERA_CA_CERT_PATH));
+		return;
+	}
+
+	if (url.pathname === "/phone-camera-setup" && request.method === "GET") {
+		const secureBaseUrl = bridgeBaseUrl ?? "https://127.0.0.1";
+		const secureUrl = new URL("/phone-camera", secureBaseUrl);
+		secureUrl.search = url.search;
+		const healthUrl = new URL("/phone-camera-health", secureBaseUrl);
+		response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+		response.end(renderCertificateSetupPage(secureUrl.toString(), healthUrl.toString()));
+		return;
+	}
+
+	response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+	response.end("Not Found");
+}
+
+export async function handlePhoneCameraBridgeRequest(
+	request: IncomingMessage,
+	response: ServerResponse,
+): Promise<void> {
 	try {
 		const base = bridgeBaseUrl ?? "http://127.0.0.1";
 		const url = new URL(request.url ?? "/", base);
@@ -330,18 +528,32 @@ async function handleBridgeRequest(request: IncomingMessage, response: ServerRes
 			return;
 		}
 
+		if (url.pathname === "/phone-camera-health" && request.method === "GET") {
+			response.writeHead(204, {
+				"Access-Control-Allow-Origin": "*",
+				"Cache-Control": "no-store",
+			});
+			response.end();
+			return;
+		}
+
 		if (url.pathname === "/phone-camera" && request.method === "GET") {
 			const state = currentSessionResolver?.() ?? {};
 			const sessionId = url.searchParams.get("session") ?? "";
 			const pairingCode = (url.searchParams.get("code") ?? "").toUpperCase();
-			const valid = Boolean(state.sessionId && state.pairingCode && state.sessionId === sessionId && state.pairingCode === pairingCode);
+			const valid = Boolean(
+				state.sessionId &&
+					state.pairingCode &&
+					state.sessionId === sessionId &&
+					state.pairingCode === pairingCode,
+			);
 			const html = renderBridgePage({
 				sessionId,
 				pairingCode,
 				status: valid ? "ready" : "invalid",
 				message: valid
-					? "This phone is now in the Recordly pairing flow. Tap the button below to notify the desktop app."
-					: "This pairing link is no longer active or does not match the current desktop session.",
+					? "这台手机已加入 ZZ Record 配对流程。点击下方按钮通知桌面端。"
+					: "此配对链接已失效，或与当前桌面端会话不匹配。",
 			});
 			response.writeHead(valid ? 200 : 410, { "Content-Type": "text/html; charset=utf-8" });
 			response.end(html);
@@ -349,27 +561,38 @@ async function handleBridgeRequest(request: IncomingMessage, response: ServerRes
 		}
 
 		if (url.pathname === "/phone-camera/connect" && request.method === "POST") {
-			const body = (await readJsonBody(request)) as { sessionId?: string; pairingCode?: string } | null;
+			const body = (await readJsonBody(request, PHONE_CAMERA_CONNECT_BODY_MAX_BYTES)) as {
+				sessionId?: string;
+				pairingCode?: string;
+			} | null;
 			const sessionId = body?.sessionId;
 			const pairingCode = body?.pairingCode?.toUpperCase();
 			const success =
 				typeof sessionId === "string" &&
 				typeof pairingCode === "string" &&
-				Boolean(connectCallback?.({
-					sessionId,
-					pairingCode,
-					remoteAddress: request.socket.remoteAddress ?? null,
-				}));
+				Boolean(
+					connectCallback?.({
+						sessionId,
+						pairingCode,
+						remoteAddress: request.socket.remoteAddress ?? null,
+					}),
+				);
 			response.writeHead(success ? 200 : 410, {
 				"Content-Type": "application/json; charset=utf-8",
 				"Access-Control-Allow-Origin": "*",
 			});
-			response.end(JSON.stringify(success ? { success: true } : { success: false, error: "Session expired or invalid." }));
+			response.end(
+				JSON.stringify(
+					success
+						? { success: true }
+						: { success: false, error: "Session expired or invalid." },
+				),
+			);
 			return;
 		}
 
 		if (url.pathname === "/phone-camera/frame" && request.method === "POST") {
-			const body = (await readJsonBody(request)) as {
+			const body = (await readJsonBody(request, PHONE_CAMERA_FRAME_BODY_MAX_BYTES)) as {
 				sessionId?: string;
 				pairingCode?: string;
 				frameDataUrl?: string;
@@ -384,6 +607,8 @@ async function handleBridgeRequest(request: IncomingMessage, response: ServerRes
 				typeof sessionId === "string" &&
 				typeof pairingCode === "string" &&
 				typeof frameDataUrl === "string" &&
+				frameDataUrl.length <= PHONE_CAMERA_FRAME_DATA_URL_MAX_LENGTH &&
+				hasValidPhoneCameraFrameDimensions(body?.width, body?.height) &&
 				Boolean(
 					frameCallback?.({
 						sessionId,
@@ -391,7 +616,8 @@ async function handleBridgeRequest(request: IncomingMessage, response: ServerRes
 						frameDataUrl,
 						width: typeof body?.width === "number" ? body.width : undefined,
 						height: typeof body?.height === "number" ? body.height : undefined,
-						capturedAtMs: typeof body?.capturedAtMs === "number" ? body.capturedAtMs : undefined,
+						capturedAtMs:
+							typeof body?.capturedAtMs === "number" ? body.capturedAtMs : undefined,
 						remoteAddress: request.socket.remoteAddress ?? null,
 					}),
 				);
@@ -399,94 +625,25 @@ async function handleBridgeRequest(request: IncomingMessage, response: ServerRes
 				"Content-Type": "application/json; charset=utf-8",
 				"Access-Control-Allow-Origin": "*",
 			});
-			response.end(JSON.stringify(success ? { success: true } : { success: false, error: "Frame rejected." }));
-			return;
-		}
-
-		// WebRTC signaling routes
-		if (url.pathname === "/api/webrtc-offer" && request.method === "POST") {
-			const body = (await readJsonBody(request)) as { sdp?: string } | null;
-			const sdp = typeof body?.sdp === "string" ? body.sdp : null;
-			if (!sdp) {
-				response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
-				response.end(JSON.stringify({ error: "Missing SDP offer." }));
-				return;
-			}
-			webrtcOffer = sdp;
-			webrtcAnswer = null;
-			webrtcIceFromOverlay = [];
-			webrtcIceFromPhone = [];
-			broadcastWebrtcSignal({ type: "offer", sdp: webrtcOffer });
-			if (answerReadyResolver) {
-				try { answerReadyResolver(); } catch (e) { /* ignore */ }
-				answerReadyResolver = null;
-			}
-			answerPollTimer = setInterval(() => {
-				if (webrtcAnswer) {
-					clearInterval(answerPollTimer);
-					answerPollTimer = undefined;
-					if (answerReadyResolver) {
-						try { answerReadyResolver(); } catch (e) { /* ignore */ }
-						answerReadyResolver = null;
-					}
-				}
-			}, 100);
-			setTimeout(() => {
-				if (answerPollTimer) {
-					clearInterval(answerPollTimer);
-					answerPollTimer = undefined;
-					webrtcOffer = null;
-					if (!response.headersSent) {
-						response.writeHead(408);
-						response.end();
-					}
-				}
-			}, 30000);
-			return;
-		}
-
-		if (url.pathname === "/api/webrtc-answer" && request.method === "POST") {
-			const body = (await readJsonBody(request)) as { sdp?: string } | null;
-			const sdp = typeof body?.sdp === "string" ? body.sdp : null;
-			if (!sdp) {
-				response.writeHead(400, { "Content-Type": "application/json; charset=utf-8" });
-				response.end(JSON.stringify({ error: "Missing SDP answer." }));
-				return;
-			}
-			webrtcAnswer = sdp;
-			broadcastWebrtcSignal({ type: "answer", sdp: webrtcAnswer });
-			response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
-			response.end(JSON.stringify({ ok: true }));
-			return;
-		}
-
-		if (url.pathname === "/api/webrtc-answer" && request.method === "GET") {
-			const payload = webrtcAnswer ? { type: "answer", sdp: webrtcAnswer } : { type: "pending" };
-			response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
-			response.end(JSON.stringify(payload));
-			return;
-		}
-
-		if (url.pathname === "/api/webrtc-ice" && request.method === "POST") {
-			const body = (await readJsonBody(request)) as unknown;
-			webrtcIceFromPhone.push(body);
-			broadcastWebrtcSignal({ type: "ice-candidate", candidate: body });
-			response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
-			response.end(JSON.stringify({ ok: true }));
-			return;
-		}
-
-		if (url.pathname === "/api/webrtc-ice" && request.method === "GET") {
-			const candidates = webrtcIceFromOverlay.slice();
-			webrtcIceFromOverlay = [];
-			response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" });
-			response.end(JSON.stringify(candidates));
+			response.end(
+				JSON.stringify(
+					success ? { success: true } : { success: false, error: "Frame rejected." },
+				),
+			);
 			return;
 		}
 
 		response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
 		response.end("Not Found");
 	} catch (error) {
+		if (error instanceof RequestBodyTooLargeError) {
+			response.writeHead(413, {
+				"Content-Type": "application/json; charset=utf-8",
+				"Access-Control-Allow-Origin": "*",
+			});
+			response.end(JSON.stringify({ error: "Request body is too large." }));
+			return;
+		}
 		console.error("[phone-camera-bridge] Error handling request:", error);
 		response.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
 		response.end("Internal Server Error");
@@ -495,7 +652,11 @@ async function handleBridgeRequest(request: IncomingMessage, response: ServerRes
 
 export function configurePhoneCameraBridgeSession(options: {
 	getSession: () => { sessionId?: string; pairingCode?: string; pairingUrl?: string };
-	onConnect: (payload: { sessionId: string; pairingCode: string; remoteAddress?: string | null }) => boolean;
+	onConnect: (payload: {
+		sessionId: string;
+		pairingCode: string;
+		remoteAddress?: string | null;
+	}) => boolean;
 	onFrame: (payload: {
 		sessionId: string;
 		pairingCode: string;
@@ -509,34 +670,6 @@ export function configurePhoneCameraBridgeSession(options: {
 	currentSessionResolver = options.getSession;
 	connectCallback = options.onConnect;
 	frameCallback = options.onFrame;
-
-	ipcMain.on(PHONE_CAMERA_WEBRTC_SIGNAL_CHANNEL, (_event, signal: unknown) => {
-		if (signal && typeof signal === "object") {
-			const msg = signal as { type?: string; sdp?: string; candidate?: unknown };
-			if (msg.type === "answer" && typeof msg.sdp === "string") {
-				webrtcAnswer = msg.sdp;
-				if (answerReadyResolver) {
-					try { answerReadyResolver(); } catch (e) { /* ignore */ }
-					answerReadyResolver = null;
-				}
-			} else if (msg.type === "ice-candidate") {
-				webrtcIceFromOverlay.push(msg.candidate ?? msg);
-			}
-		}
-	});
-}
-
-export function waitForWebrtcAnswer(): Promise<void> {
-	if (webrtcAnswer) {
-		return Promise.resolve();
-	}
-	return new Promise((resolve) => {
-		answerReadyResolver = resolve;
-	});
-}
-
-export function getPhoneCameraWebrtcSignalingChannel(): string {
-	return PHONE_CAMERA_WEBRTC_SIGNAL_CHANNEL;
 }
 
 export function getPhoneCameraBridgeBaseUrl(): string | null {
@@ -550,34 +683,69 @@ export async function ensurePhoneCameraBridgeServer(): Promise<string> {
 	if (bridgeStartPromise) {
 		return bridgeStartPromise;
 	}
-	bridgeStartPromise = new Promise((resolve, reject) => {
-		const server = createServer((request, response) => {
-			void handleBridgeRequest(request, response);
-		});
-		server.once("error", (error) => reject(error));
-		server.listen(0, "0.0.0.0", () => {
-			const address = server.address();
-			if (!address || typeof address === "string") {
-				server.close();
-				reject(new Error("Phone camera bridge server did not expose a TCP address"));
-				return;
-			}
-			bridgeBaseUrl = `http://${getPreferredLanAddress()}:${address.port}`;
-			console.log(`[phone-camera-bridge] Listening at ${bridgeBaseUrl}`);
-			resolve(bridgeBaseUrl);
-		});
-	});
-	return bridgeStartPromise;
-}
+	bridgeStartPromise = (async () => {
+		const lanAddress = getPreferredLanAddress();
+		if (lanAddress === "127.0.0.1") {
+			throw new Error("No local IPv4 network address is available for phone camera pairing.");
+		}
 
-export function closePhoneCameraBridgeSession(): void {
-	if (answerPollTimer) {
-		clearInterval(answerPollTimer);
-		answerPollTimer = undefined;
+		const certificateAuthority = loadOrCreatePhoneCameraCertificateAuthority();
+		const credentials = loadOrCreatePhoneCameraServerCertificate(
+			lanAddress,
+			certificateAuthority,
+		);
+		const secureServer = createHttpsServer(credentials, (request, response) => {
+			void handlePhoneCameraBridgeRequest(request, response);
+		});
+		const setupServer = createServer((request, response) => {
+			handlePhoneCameraSetupRequest(request, response);
+		});
+
+		try {
+			const securePort = await new Promise<number>((resolve, reject) => {
+				secureServer.once("error", reject);
+				secureServer.listen(PHONE_CAMERA_HTTPS_PORT, "0.0.0.0", () => {
+					const address = secureServer.address();
+					if (!address || typeof address === "string") {
+						reject(
+							new Error("Phone camera HTTPS server did not expose a TCP address."),
+						);
+						return;
+					}
+					resolve(address.port);
+				});
+			});
+			const setupPort = await new Promise<number>((resolve, reject) => {
+				setupServer.once("error", reject);
+				setupServer.listen(PHONE_CAMERA_SETUP_PORT, "0.0.0.0", () => {
+					const address = setupServer.address();
+					if (!address || typeof address === "string") {
+						reject(
+							new Error("Phone camera setup server did not expose a TCP address."),
+						);
+						return;
+					}
+					resolve(address.port);
+				});
+			});
+
+			bridgeBaseUrl = `https://${lanAddress}:${securePort}`;
+			bridgeSetupBaseUrl = `http://${lanAddress}:${setupPort}`;
+			console.log(
+				`[phone-camera-bridge] HTTPS at ${bridgeBaseUrl}; certificate setup at ${bridgeSetupBaseUrl}`,
+			);
+			return bridgeBaseUrl;
+		} catch (error) {
+			secureServer.close();
+			setupServer.close();
+			throw error;
+		}
+	})();
+
+	try {
+		return await bridgeStartPromise;
+	} catch (error) {
+		bridgeStartPromise = null;
+		throw error;
 	}
-	webrtcOffer = null;
-	webrtcAnswer = null;
-	webrtcIceFromOverlay = [];
-	webrtcIceFromPhone = [];
-	answerReadyResolver = null;
 }

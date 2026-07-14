@@ -1,5 +1,5 @@
 export const PHONE_CAMERA_DEVICE_ID = "recordly-phone-camera";
-export const PHONE_CAMERA_DEVICE_LABEL = "Phone Camera (Local)";
+export const PHONE_CAMERA_DEVICE_LABEL = "手机摄像头（本机）";
 
 export type PhoneCameraStatus = "inactive" | "pending" | "connected" | "error" | "stopped";
 

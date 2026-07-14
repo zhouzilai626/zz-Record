@@ -13,10 +13,10 @@ import {
 	session,
 	systemPreferences,
 	Tray,
+	type WebContents,
 } from "electron";
 import { RECORDINGS_DIR } from "./appPaths";
 import { showCursor } from "./cursorHider";
-import { registerExtensionIpcHandlers } from "./extensions/extensionIpc";
 import { getGpuSwitches } from "./gpuSwitches";
 import {
 	cleanupAllExportStreams,
@@ -26,7 +26,7 @@ import {
 	registerIpcHandlers,
 } from "./ipc/handlers";
 import { ensureMediaServer } from "./mediaServer";
-import { ensurePackagedRendererServer } from "./rendererServer";
+import { ensurePackagedRendererServer, getPackagedRendererBaseUrl } from "./rendererServer";
 import type { UpdateToastPayload } from "./updater";
 import {
 	checkForAppUpdates,
@@ -41,6 +41,7 @@ import {
 	setupAutoUpdates,
 	skipAvailableUpdateVersion,
 } from "./updater";
+import { canRequestMediaPermission, isTrustedRendererUrl } from "./windowSecurity";
 import {
 	createEditorWindow,
 	createHudOverlayWindow,
@@ -148,6 +149,30 @@ const shouldEnforceSingleInstanceLock = !IS_DEV;
 const hasSingleInstanceLock = shouldEnforceSingleInstanceLock
 	? app.requestSingleInstanceLock()
 	: true;
+
+function getRendererSecurityContext() {
+	return {
+		devServerUrl: VITE_DEV_SERVER_URL,
+		packagedRendererBaseUrl: getPackagedRendererBaseUrl(),
+		rendererDist: RENDERER_DIST,
+	};
+}
+
+function configureWebContentsSecurity(webContents: WebContents): void {
+	webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+	const blockUntrustedNavigation = (event: Electron.Event, targetUrl: string) => {
+		if (!isTrustedRendererUrl(targetUrl, getRendererSecurityContext())) {
+			event.preventDefault();
+			console.warn("[security] Blocked renderer navigation:", targetUrl);
+		}
+	};
+	webContents.on("will-navigate", blockUntrustedNavigation);
+	webContents.on("will-redirect", blockUntrustedNavigation);
+}
+
+app.on("web-contents-created", (_event, webContents) => {
+	configureWebContentsSecurity(webContents);
+});
 
 if (!hasSingleInstanceLock) {
 	app.quit();
@@ -519,22 +544,22 @@ function syncDockIcon() {
 function getUpdateNotificationTitle(payload: UpdateToastPayload) {
 	switch (payload.phase) {
 		case "available":
-			return `Recordly ${payload.version} is available`;
+			return `ZZ Record ${payload.version} is available`;
 		case "downloading":
-			return `Downloading Recordly ${payload.version}`;
+			return `Downloading ZZ Record ${payload.version}`;
 		case "ready":
-			return `Recordly ${payload.version} is ready`;
+			return `ZZ Record ${payload.version} is ready`;
 		case "error":
-			return `Recordly ${payload.version} needs attention`;
+			return `ZZ Record ${payload.version} needs attention`;
 	}
 }
 
 function getUpdateNotificationBody(payload: UpdateToastPayload) {
 	switch (payload.phase) {
 		case "available":
-			return "Click to install the update and restart Recordly.";
+			return "Click to install the update and restart ZZ Record.";
 		case "downloading":
-			return "Recordly is downloading the update and will restart when it is ready.";
+			return "ZZ Record is downloading the update and will restart when it is ready.";
 		case "ready":
 			return "Click to install the downloaded update and restart.";
 		case "error":
@@ -709,7 +734,7 @@ ipcMain.handle("check-for-app-updates", async () => {
 function updateTrayMenu(recording: boolean = false) {
 	if (!tray) return;
 	const trayIcon = recording ? getRecordingTrayIcon() : getDefaultTrayIcon();
-	const trayToolTip = recording ? `Recording: ${selectedSourceName}` : "Recordly";
+	const trayToolTip = recording ? `Recording: ${selectedSourceName}` : "ZZ Record";
 	const menuTemplate = recording
 		? [
 				{
@@ -879,17 +904,32 @@ app.whenReady().then(async () => {
 		app.setAppUserModelId("dev.recordly.app");
 	}
 
-	session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
-		const allowed = ["media", "audioCapture", "microphone", "camera", "videoCapture"];
-		return allowed.includes(permission);
+	session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
+		const hudOverlayWindow = getHudOverlayWindow();
+		return Boolean(
+			webContents &&
+				canRequestMediaPermission(
+					webContents.getURL(),
+					permission,
+					getRendererSecurityContext(),
+					hudOverlayWindow?.webContents === webContents,
+				),
+		);
 	});
 
-	session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-		const allowed = ["media", "audioCapture", "microphone", "camera", "videoCapture"];
-		callback(allowed.includes(permission));
+	session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+		const hudOverlayWindow = getHudOverlayWindow();
+		callback(
+			canRequestMediaPermission(
+				webContents.getURL(),
+				permission,
+				getRendererSecurityContext(),
+				hudOverlayWindow?.webContents === webContents,
+			),
+		);
 	});
 
-	session.defaultSession.setDevicePermissionHandler((_details) => true);
+	session.defaultSession.setDevicePermissionHandler(() => false);
 
 	if (process.platform === "darwin") {
 		const cameraStatus = systemPreferences.getMediaAccessStatus("camera");
@@ -973,8 +1013,6 @@ app.whenReady().then(async () => {
 		},
 	);
 
-	registerExtensionIpcHandlers();
-
 	if (IS_SMOKE_EXPORT || process.env.RECORDLY_DEV_OPEN_RECORDING_INPUT) {
 		await logSmokeExportGpuDiagnostics();
 		if (IS_SMOKE_EXPORT) {
@@ -1046,4 +1084,3 @@ app.whenReady().then(async () => {
 		sendUpdateToastToWindows("update-toast-state", currentToastPayload);
 	}
 });
-

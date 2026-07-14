@@ -1,35 +1,36 @@
 import {
+	ArrowClockwise,
 	Eye,
 	EyeSlash as EyeOff,
 	VideoCamera as Video,
 	VideoCameraSlash as VideoOff,
 } from "@phosphor-icons/react";
+import type { ReactElement } from "react";
 import { useScopedT } from "@/contexts/I18nContext";
 import { isPhoneCameraDeviceId, type PhoneCameraState } from "@/lib/phoneCamera";
-import { DropdownItem, HudPopover } from "./PopoverScaffold";
 import { useLaunchPopoverCoordinator } from "./LaunchPopoverCoordinator";
 import type { DeviceOption } from "./launchPopoverTypes";
-import type { ReactElement } from "react";
+import { DropdownItem, HudPopover } from "./PopoverScaffold";
 
 const POPOVER_ID = "webcam";
 
 function getPhoneCameraStatusLabel(state: PhoneCameraState | null): string {
 	if (!state) {
-		return "Ready to pair";
+		return "等待配对";
 	}
 
 	switch (state.status) {
 		case "pending":
-			return "Waiting for phone connection";
+			return "正在等待手机连接";
 		case "connected":
-			return "Phone connected";
+			return "手机已连接";
 		case "error":
-			return state.error || "Connection failed";
+			return state.error || "连接失败";
 		case "stopped":
-			return "Session stopped";
+			return "连接已停止";
 		case "inactive":
 		default:
-			return state.message || "Ready to pair";
+			return state.message || "等待配对";
 	}
 }
 
@@ -48,6 +49,7 @@ export function WebcamPopover({
 	selectedVideoDeviceId,
 	onSelectVideoDevice,
 	phoneCameraState,
+	onForgetPhoneCamera,
 }: {
 	trigger: ReactElement;
 	disabled?: boolean;
@@ -63,10 +65,14 @@ export function WebcamPopover({
 	selectedVideoDeviceId?: string;
 	onSelectVideoDevice: (deviceId: string) => void;
 	phoneCameraState: PhoneCameraState | null;
+	onForgetPhoneCamera: () => void;
 }) {
 	const t = useScopedT("launch");
 	const { isOpen, requestOpen, requestClose } = useLaunchPopoverCoordinator();
 	const open = isOpen(POPOVER_ID);
+	const phoneCameraSelected =
+		webcamEnabled &&
+		(isPhoneCameraDeviceId(webcamDeviceId) || isPhoneCameraDeviceId(selectedVideoDeviceId));
 
 	return (
 		<HudPopover
@@ -89,15 +95,20 @@ export function WebcamPopover({
 			</div>
 			{webcamEnabled && (
 				<>
-					<DropdownItem icon={<VideoOff size={16} />} onClick={() => {
-						onDisableWebcam();
-						requestClose(POPOVER_ID);
-					}}>
+					<DropdownItem
+						icon={<VideoOff size={16} />}
+						onClick={() => {
+							onDisableWebcam();
+							requestClose(POPOVER_ID);
+						}}
+					>
 						{t("recording.turnOffWebcam")}
 					</DropdownItem>
 					{canToggleFloatingPreview ? (
 						<DropdownItem
-							icon={showFloatingWebcamPreview ? <EyeOff size={16} /> : <Eye size={16} />}
+							icon={
+								showFloatingWebcamPreview ? <EyeOff size={16} /> : <Eye size={16} />
+							}
 							selected={showFloatingWebcamPreview}
 							onClick={onToggleFloatingPreview}
 						>
@@ -106,10 +117,23 @@ export function WebcamPopover({
 								: t("recording.showFloatingWebcamPreview")}
 						</DropdownItem>
 					) : null}
+					{phoneCameraSelected ? (
+						<DropdownItem
+							icon={<ArrowClockwise size={16} />}
+							onClick={() => {
+								onForgetPhoneCamera();
+								requestClose(POPOVER_ID);
+							}}
+						>
+							忘记此手机并重新配对
+						</DropdownItem>
+					) : null}
 				</>
 			)}
 			{!webcamEnabled && (
-				<div className="px-3 py-2 text-xs text-[var(--launch-text-muted)]">{t("recording.selectWebcamToEnable")}</div>
+				<div className="px-3 py-2 text-xs text-[var(--launch-text-muted)]">
+					{t("recording.selectWebcamToEnable")}
+				</div>
 			)}
 			{showWebcamControls && (
 				<div className="flex justify-center px-3 py-2">
@@ -127,16 +151,25 @@ export function WebcamPopover({
 			{videoDevices.map((device) => {
 				const isSelected =
 					webcamEnabled &&
-					(webcamDeviceId === device.deviceId || selectedVideoDeviceId === device.deviceId);
+					(webcamDeviceId === device.deviceId ||
+						selectedVideoDeviceId === device.deviceId);
 				const isPhoneCamera = isPhoneCameraDeviceId(device.deviceId);
-				const phoneStatus = isPhoneCamera ? getPhoneCameraStatusLabel(phoneCameraState) : null;
+				const phoneStatus = isPhoneCamera
+					? getPhoneCameraStatusLabel(phoneCameraState)
+					: null;
 
 				return (
-					<div key={device.deviceId} className="border-b border-transparent last:border-b-0">
+					<div
+						key={device.deviceId}
+						className="border-b border-transparent last:border-b-0"
+					>
 						<DropdownItem
 							icon={isSelected ? <Video size={16} /> : <VideoOff size={16} />}
 							selected={isSelected}
-							onClick={() => onSelectVideoDevice(device.deviceId)}
+							onClick={() => {
+								onSelectVideoDevice(device.deviceId);
+								requestClose(POPOVER_ID);
+							}}
 						>
 							<div className="flex min-w-0 flex-col">
 								<span className="truncate">{device.label}</span>
@@ -151,7 +184,9 @@ export function WebcamPopover({
 				);
 			})}
 			{videoDevices.length === 0 && (
-				<div className="text-center text-xs text-[var(--launch-text-muted)] py-4">{t("recording.noWebcamsFound")}</div>
+				<div className="text-center text-xs text-[var(--launch-text-muted)] py-4">
+					{t("recording.noWebcamsFound")}
+				</div>
 			)}
 		</HudPopover>
 	);

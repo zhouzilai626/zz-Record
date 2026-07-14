@@ -15,15 +15,15 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RxDragHandleDots2 } from "react-icons/rx";
 import { Separator } from "@/components/ui/separator";
-import { useScopedT } from "../../contexts/I18nContext";
-import { useMicrophoneDevices } from "../../hooks/useMicrophoneDevices";
-import { useScreenRecorder } from "../../hooks/useScreenRecorder";
-import { useVideoDevices } from "../../hooks/useVideoDevices";
 import {
 	PHONE_CAMERA_DEVICE_ID,
 	PHONE_CAMERA_DEVICE_LABEL,
 	type PhoneCameraState,
 } from "@/lib/phoneCamera";
+import { useScopedT } from "../../contexts/I18nContext";
+import { useMicrophoneDevices } from "../../hooks/useMicrophoneDevices";
+import { useScreenRecorder } from "../../hooks/useScreenRecorder";
+import { useVideoDevices } from "../../hooks/useVideoDevices";
 import { Button } from "../ui/button";
 import { HudInteractionContext } from "./contexts/HudInteractionContext";
 import { canToggleFloatingWebcamPreview } from "./floatingWebcamPreview";
@@ -48,26 +48,6 @@ import { RecordingControls } from "./RecordingControls";
 import { MarqueeText } from "./SourceSelector";
 
 const SHOW_DEV_UPDATE_PREVIEW = import.meta.env.DEV;
-
-function getPhoneCameraSummary(state: PhoneCameraState | null): string | null {
-	if (!state) {
-		return null;
-	}
-
-	if (state.status === "pending") {
-		return state.message || "Phone camera is waiting for connection.";
-	}
-
-	if (state.status === "connected") {
-		return state.message || "Phone camera connected.";
-	}
-
-	if (state.status === "error") {
-		return state.error || state.message || "Phone camera connection failed.";
-	}
-
-	return null;
-}
 
 export function LaunchWindow() {
 	return (
@@ -132,7 +112,10 @@ function LaunchWindowContent() {
 		setSelectedDeviceId: setSelectedVideoDeviceId,
 	} = useVideoDevices(webcamEnabled || openId === "webcam");
 	const videoDevicesWithPhone = useMemo(
-		() => [{ deviceId: PHONE_CAMERA_DEVICE_ID, label: PHONE_CAMERA_DEVICE_LABEL }, ...videoDevices],
+		() => [
+			{ deviceId: PHONE_CAMERA_DEVICE_ID, label: PHONE_CAMERA_DEVICE_LABEL },
+			...videoDevices,
+		],
 		[videoDevices],
 	);
 
@@ -146,11 +129,6 @@ function LaunchWindowContent() {
 	} = useLaunchWindowSystemState(preparePermissions);
 
 	const supportsHudCaptureProtection = platform !== "linux";
-	const phoneCameraSummary =
-		webcamEnabled && webcamDeviceId === PHONE_CAMERA_DEVICE_ID
-			? getPhoneCameraSummary(phoneCameraState)
-			: null;
-
 	useEffect(() => {
 		if (!selectedDeviceId) {
 			return;
@@ -191,6 +169,9 @@ function LaunchWindowContent() {
 		setShowFloatingWebcamPreview,
 		showRecordingWebcamPreview,
 		webcamPreviewOffset,
+		webcamPreviewSize,
+		adjustWebcamPreviewSize,
+		resetWebcamPreviewSize,
 		recordingWebcamPreviewContainerRef,
 		isWebcamPreviewDraggingRef,
 		webcamPreviewDragStartRef,
@@ -200,11 +181,11 @@ function LaunchWindowContent() {
 		setWebcamPreviewNode,
 		setRecordingWebcamPreviewNode,
 	} = useWebcamPreviewOverlay({
+		recording,
 		webcamEnabled,
 		webcamDeviceId,
 		showWebcamControls,
 		webcamPopoverOpen: openId === "webcam",
-		hudOverlayMousePassthroughSupported,
 	});
 
 	const {
@@ -278,7 +259,7 @@ function LaunchWindowContent() {
 								variant="outline"
 								size="lg"
 								className={`${styles.electronNoDrag} group gap-2 px-3 min-w-0 max-w-[180px] rounded-[11px] font-medium text-[12px] shrink-0 border-[var(--launch-border)] bg-[var(--launch-surface)] text-[var(--launch-text)] hover:border-[var(--launch-border-strong)] hover:bg-[var(--launch-hover)] transition-all ${openId === "sources" ? "border-[var(--launch-border-strong)] bg-[var(--launch-hover)]" : ""}`}
-								title={selectedSource}
+								title={hasSelectedSource ? selectedSource : "请选择录制范围"}
 							>
 								<MonitorIcon size={16} className="shrink-0" />
 								<div className="flex-1 min-w-0 overflow-hidden">
@@ -336,7 +317,11 @@ function LaunchWindowContent() {
 			<WebcamPopover
 				disabled={recording}
 				webcamEnabled={webcamEnabled}
-				onDisableWebcam={() => setWebcamEnabled(false)}
+				onDisableWebcam={() => {
+					setWebcamEnabled(false);
+					void window.electronAPI.cameraOverlayHideLocal();
+					void window.electronAPI.phoneCameraSuspendPreview();
+				}}
 				canToggleFloatingPreview={canToggleFloatingWebcamPreview(
 					hudOverlayMousePassthroughSupported,
 				)}
@@ -348,14 +333,31 @@ function LaunchWindowContent() {
 				webcamDeviceId={webcamDeviceId}
 				selectedVideoDeviceId={selectedVideoDeviceId}
 				phoneCameraState={phoneCameraState}
+				onForgetPhoneCamera={() => {
+					void window.electronAPI
+						.phoneCameraForget()
+						.then((state) => {
+							setPhoneCameraState(state);
+							setWebcamEnabled(false);
+							setWebcamDeviceId(undefined);
+							setSelectedVideoDeviceId("default");
+						})
+						.catch((error) => {
+							console.warn("Failed to forget phone camera pairing:", error);
+						});
+				}}
 				onSelectVideoDevice={(deviceId) => {
 					setWebcamEnabled(true);
 					setSelectedVideoDeviceId(deviceId);
 					setWebcamDeviceId(deviceId);
 					if (deviceId === PHONE_CAMERA_DEVICE_ID) {
-						void window.electronAPI.phoneCameraStart({ reason: "selection" }).catch((error) => {
-							console.warn("Failed to initialize phone camera session:", error);
-						});
+						void window.electronAPI
+							.phoneCameraStart({ reason: "selection" })
+							.catch((error) => {
+								console.warn("Failed to initialize phone camera session:", error);
+							});
+					} else {
+						void window.electronAPI.phoneCameraSuspendPreview();
 					}
 				}}
 				trigger={
@@ -378,12 +380,6 @@ function LaunchWindowContent() {
 					</Button>
 				}
 			/>
-
-			{phoneCameraSummary ? (
-				<div className="max-w-[220px] px-1 text-[11px] leading-4 text-[var(--launch-text-muted)]">
-					{phoneCameraSummary}
-				</div>
-			) : null}
 
 			<CountdownPopover
 				countdownDelay={countdownDelay}
@@ -413,7 +409,7 @@ function LaunchWindowContent() {
 							}
 				}
 				disabled={countdownActive}
-				title={t("recording.record")}
+				title={hasSelectedSource ? t("recording.record") : "选择录制范围"}
 			>
 				<div className={styles.recDot} />
 			</button>
@@ -583,6 +579,8 @@ function LaunchWindowContent() {
 								data-hud-interactive
 								title={t("recording.webcam")}
 								style={{
+									width: webcamPreviewSize,
+									height: webcamPreviewSize,
 									transform: `translate(${webcamPreviewOffset.x}px, ${webcamPreviewOffset.y}px)`,
 								}}
 								onMouseEnter={handleHudMouseEnter}
@@ -592,6 +590,38 @@ function LaunchWindowContent() {
 								onPointerUp={handleWebcamPreviewPointerUp}
 								onPointerCancel={handleWebcamPreviewPointerUp}
 							>
+								<div className={styles.recordingWebcamPreviewControls}>
+									<button
+										type="button"
+										className={styles.recordingWebcamPreviewControl}
+										title="缩小画中画"
+										aria-label="缩小画中画"
+										onPointerDown={(event) => event.stopPropagation()}
+										onClick={() => adjustWebcamPreviewSize(-32)}
+									>
+										-
+									</button>
+									<button
+										type="button"
+										className={styles.recordingWebcamPreviewControl}
+										title="恢复默认大小"
+										aria-label="恢复默认大小"
+										onPointerDown={(event) => event.stopPropagation()}
+										onClick={resetWebcamPreviewSize}
+									>
+										1:1
+									</button>
+									<button
+										type="button"
+										className={styles.recordingWebcamPreviewControl}
+										title="放大画中画"
+										aria-label="放大画中画"
+										onPointerDown={(event) => event.stopPropagation()}
+										onClick={() => adjustWebcamPreviewSize(32)}
+									>
+										+
+									</button>
+								</div>
 								<video
 									ref={setRecordingWebcamPreviewNode}
 									className={styles.recordingWebcamPreviewVideo}

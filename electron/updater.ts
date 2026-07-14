@@ -212,10 +212,10 @@ function createDownloadingUpdateToastPayload(
 		phase: "downloading",
 		detail:
 			normalizedProgress >= 100
-				? "Finishing the update download. Recordly will restart as soon as the installer is ready."
+				? "正在完成更新下载，安装程序准备好后 ZZ Record 将自动重启。"
 				: remainingMb !== null
-					? `${remainingMb.toFixed(1)} MB left before Recordly restarts.`
-					: "Downloading the update now. Recordly will restart when it finishes.",
+					? `ZZ Record 重启前还需下载 ${remainingMb.toFixed(1)} MB。`
+					: "正在下载更新，完成后 ZZ Record 将自动重启。",
 		delayMs: UPDATE_REMINDER_DELAY_MS,
 		progressPercent: normalizedProgress,
 		transferredBytes,
@@ -412,7 +412,7 @@ export async function downloadAvailableUpdate(
 	setUpdateStatusSummary({
 		status: "downloading",
 		availableVersion,
-		detail: `Downloading Recordly ${availableVersion}`,
+		detail: `正在下载 ZZ Record ${availableVersion}`,
 	});
 	emitUpdateToastState(
 		sendToRenderer,
@@ -523,10 +523,10 @@ async function showAvailableUpdateDialog(
 ) {
 	const result = await showMessageBox(getMainWindow, {
 		type: "info",
-		title: "Update Available",
-		message: `Recordly ${version} is available.`,
-		detail: "Install and restart now, or remind me later.",
-		buttons: ["Install & Restart", "Later"],
+		title: "发现更新",
+		message: `ZZ Record ${version} 可更新。`,
+		detail: "现在安装并重启，或稍后提醒我。",
+		buttons: ["安装并重启", "稍后"],
 		defaultId: 0,
 		cancelId: 1,
 		noLink: true,
@@ -548,14 +548,14 @@ async function showDownloadedUpdateDialog(
 	const isPreview = Boolean(options?.isPreview);
 	const result = await showMessageBox(getMainWindow, {
 		type: "info",
-		title: "Update Ready",
+		title: "更新已就绪",
 		message: isPreview
-			? `Recordly ${version} is ready to install.`
-			: `Recordly ${version} has been downloaded.`,
+			? `ZZ Record ${version} 已可安装。`
+			: `ZZ Record ${version} 已下载完成。`,
 		detail: isPreview
 			? "Development preview of the native update prompt. No real update will be installed."
 			: "Install and restart now, or remind me later.",
-		buttons: ["Install & Restart", "Later"],
+		buttons: ["安装并重启", "稍后"],
 		defaultId: 0,
 		cancelId: 1,
 		noLink: true,
@@ -674,7 +674,7 @@ export function setupAutoUpdates(
 		setUpdateStatusSummary({
 			status: "available",
 			availableVersion: info.version,
-			detail: `Recordly ${info.version} is available.`,
+			detail: `ZZ Record ${info.version} 可更新。`,
 		});
 		if (skippedVersion === info.version) {
 			manualCheckRequested = false;
@@ -704,7 +704,7 @@ export function setupAutoUpdates(
 		setUpdateStatusSummary({
 			status: "up-to-date",
 			availableVersion: null,
-			detail: `Recordly ${app.getVersion()} is up to date.`,
+			detail: `ZZ Record ${app.getVersion()} 已是最新版本。`,
 		});
 		clearVisibleUpdateToast(sendToRenderer);
 		manualCheckRequested = false;
@@ -719,7 +719,7 @@ export function setupAutoUpdates(
 		setUpdateStatusSummary({
 			status: "downloading",
 			availableVersion,
-			detail: `Downloading Recordly ${availableVersion}`,
+			detail: `正在下载 ZZ Record ${availableVersion}`,
 		});
 		writeUpdaterLog(
 			`Download progress for ${availableVersion}: ${progress.percent.toFixed(1)}%`,
@@ -775,7 +775,7 @@ export function setupAutoUpdates(
 		setUpdateStatusSummary({
 			status: "ready",
 			availableVersion: info.version,
-			detail: `Recordly ${info.version} is ready to install.`,
+			detail: `ZZ Record ${info.version} 已可安装。`,
 		});
 		clearDeferredReminderTimer();
 

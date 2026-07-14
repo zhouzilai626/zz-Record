@@ -12,7 +12,6 @@ import {
 	Camera as PhCameraRegular,
 	Play,
 	Plus,
-	PuzzlePiece,
 	ArrowClockwise as Redo2,
 	Scissors,
 	SkipBack,
@@ -86,7 +85,6 @@ import {
 	getAspectRatioValue,
 } from "@/utils/aspectRatioUtils";
 import { planClipSpeedChange } from "./clipSpeedChange";
-import { ExtensionIcon } from "./ExtensionIcon";
 import { calculateMp4ExportDimensions, calculateMp4SourceDimensions } from "./exportDimensions";
 import { resolveSavingExportProgress } from "./exportProgressState";
 import { resolveExportStartSettings } from "./exportStartSettings";
@@ -103,9 +101,6 @@ const PhCamera = (props: { className?: string; weight?: "fill" | "regular" }) =>
 );
 const PhCaptions = (props: { className?: string; weight?: "fill" | "regular" }) => (
 	<ClosedCaptioning weight={props.weight ?? "regular"} className={props.className} />
-);
-const PhPuzzle = (props: { className?: string; weight?: "fill" | "regular" }) => (
-	<PuzzlePiece weight={props.weight ?? "regular"} className={props.className} />
 );
 const PhSparkle = (props: { className?: string; weight?: "fill" | "regular" }) => (
 	<Sparkle weight={props.weight ?? "regular"} className={props.className} />
@@ -135,7 +130,6 @@ import {
 	splitCue,
 } from "./captionOps";
 import { ExportSettingsMenu } from "./ExportSettingsMenu";
-import ExtensionManager from "./ExtensionManager";
 import {
 	createEditorHistoryStack,
 	type EditorHistorySnapshot,
@@ -171,8 +165,6 @@ import { getDevOpenRecordingConfig, getSmokeExportConfig } from "./smokeExportCo
 import { createSmokeExportProgressSampler } from "./smokeExportProgress";
 import {
 	APP_HEADER_ICON_BUTTON_CLASS,
-	DiscordLinkButton,
-	FeedbackDialog,
 	openExternalLink,
 	RECORDLY_ISSUES_URL,
 } from "./TutorialHelp";
@@ -730,11 +722,6 @@ export default function VideoEditor() {
 			window.clearTimeout(pendingFreshRecordingAutoSuggestTimeoutRef.current);
 			pendingFreshRecordingAutoSuggestTimeoutRef.current = null;
 		}
-	}, []);
-
-	// Auto-activate builtin extensions at editor startup (idempotent)
-	useEffect(() => {
-		extensionHost.autoActivateBuiltins();
 	}, []);
 
 	const [supportedMp4SourceDimensions, setSupportedMp4SourceDimensions] =
@@ -1593,37 +1580,6 @@ export default function VideoEditor() {
 		mp4FrameRate,
 	]);
 
-	// Extension-contributed standalone section pages (no parentSection)
-	const [extensionSectionButtons, setExtensionSectionButtons] = useState<
-		{
-			id: EditorEffectSection;
-			label: string;
-			icon: typeof PhPuzzle | string;
-			extensionPath?: string | null;
-		}[]
-	>([]);
-	useEffect(() => {
-		const update = () => {
-			const panels = extensionHost.getSettingsPanels();
-			const extensionPathById = new Map(
-				extensionHost
-					.getActiveExtensions()
-					.map((extension) => [extension.manifest.id, extension.path]),
-			);
-			const standalone = panels
-				.filter((p) => !p.panel.parentSection)
-				.map((p) => ({
-					id: `ext:${p.extensionId}/${p.panel.id}` as EditorEffectSection,
-					label: p.panel.label,
-					icon: p.panel.icon || (PhPuzzle as typeof PhPuzzle | string),
-					extensionPath: extensionPathById.get(p.extensionId),
-				}));
-			setExtensionSectionButtons(standalone);
-		};
-		update();
-		return extensionHost.onChange(update);
-	}, []);
-
 	const editorSectionButtons = useMemo(
 		() => [
 			{ id: "scene" as const, label: t("settings.sections.scene", "Scene"), icon: PhSparkle },
@@ -1647,14 +1603,8 @@ export default function VideoEditor() {
 				label: t("settings.sections.settings", "Settings"),
 				icon: PhSettings,
 			},
-			...extensionSectionButtons,
-			{
-				id: "extensions" as const,
-				label: t("settings.sections.extensions", "Extensions"),
-				icon: PhPuzzle,
-			},
 		],
-		[t, extensionSectionButtons],
+		[t],
 	);
 
 	useEffect(() => {
@@ -2579,9 +2529,14 @@ export default function VideoEditor() {
 			setResolvedWebcamVideoUrl(null);
 			return;
 		}
-		void resolveVideoUrl(webcam.sourcePath).then((url) => {
-			if (!cancelled) setResolvedWebcamVideoUrl(url);
-		});
+		void resolveVideoUrl(webcam.sourcePath)
+			.then((url) => {
+				if (!cancelled) setResolvedWebcamVideoUrl(url);
+			})
+			.catch((error) => {
+				console.warn("Failed to resolve webcam media URL:", error);
+				if (!cancelled) setResolvedWebcamVideoUrl(null);
+			});
 		return () => {
 			cancelled = true;
 		};
@@ -2903,7 +2858,7 @@ export default function VideoEditor() {
 			return queueProjectSave(async () => {
 				if (!currentSourcePath) {
 					if (!options?.silent) {
-						toast.error("No video loaded");
+						toast.error("尚未加载视频");
 					}
 					return false;
 				}
@@ -2961,14 +2916,14 @@ export default function VideoEditor() {
 
 					if (result.canceled) {
 						if (!options?.silent) {
-							toast.info("Project save canceled");
+							toast.info("已取消保存项目");
 						}
 						return false;
 					}
 
 					if (!result.success) {
 						if (!options?.silent) {
-							toast.error(result.message || "Failed to save project");
+							toast.error(result.message || "保存项目失败");
 						}
 						return false;
 					}
@@ -3067,12 +3022,12 @@ export default function VideoEditor() {
 		async (projectName: string, mode: NamedProjectSaveMode = "rename") => {
 			const trimmedProjectName = projectName.trim();
 			if (!trimmedProjectName) {
-				toast.error("Project name is required");
+				toast.error("请输入项目名称");
 				return false;
 			}
 
 			if (!currentSourcePath) {
-				toast.error("No video loaded");
+				toast.error("尚未加载视频");
 				return false;
 			}
 
@@ -3094,12 +3049,12 @@ export default function VideoEditor() {
 				);
 
 				if (result.canceled) {
-					toast.info("Project save canceled");
+					toast.info("已取消保存项目");
 					return false;
 				}
 
 				if (!result.success) {
-					toast.error(result.message || "Failed to save project");
+					toast.error(result.message || "保存项目失败");
 					return false;
 				}
 
@@ -3139,7 +3094,7 @@ export default function VideoEditor() {
 			const trimmedProjectName = projectSaveDialogDraft.trim();
 
 			if (!trimmedProjectName) {
-				toast.error("Project name is required");
+				toast.error("请输入项目名称");
 				projectSaveDialogInputRef.current?.focus();
 				return;
 			}
@@ -3239,13 +3194,13 @@ export default function VideoEditor() {
 			}
 
 			if (!result.success) {
-				toast.error(result.message || "Failed to load project");
+				toast.error(result.message || "加载项目失败");
 				return;
 			}
 
 			const restored = await applyLoadedProject(result.project, result.path ?? null);
 			if (!restored) {
-				toast.error("Invalid project file format");
+				toast.error("项目文件格式无效");
 				return;
 			}
 
@@ -3275,7 +3230,7 @@ export default function VideoEditor() {
 		if (result.kind === "project" || result.project) {
 			const restored = await applyLoadedProject(result.project, result.path ?? null);
 			if (!restored) {
-				toast.error("Invalid project file format");
+				toast.error("项目文件格式无效");
 				return;
 			}
 
@@ -3286,7 +3241,7 @@ export default function VideoEditor() {
 		}
 
 		if (!result.path) {
-			toast.error("No media file selected");
+			toast.error("未选择媒体文件");
 			return;
 		}
 
@@ -3319,7 +3274,7 @@ export default function VideoEditor() {
 		await window.electronAPI.setCurrentVideoPath(sourcePath, { preserveProjectPath: false });
 		setProjectBrowserOpen(false);
 		await refreshProjectLibrary();
-		toast.success("Media imported");
+		toast.success("媒体已导入");
 	}, [
 		applyLoadedProject,
 		applySessionPresentation,
@@ -4537,9 +4492,9 @@ export default function VideoEditor() {
 	}, [selectedCaptionId, autoCaptions]);
 
 	const showExportSuccessToast = useCallback((filePath: string) => {
-		toast.success(`Exported successfully to ${filePath}`, {
+		toast.success(`已成功导出至 ${filePath}`, {
 			action: {
-				label: "Show in Folder",
+				label: "在文件夹中显示",
 				onClick: async () => {
 					try {
 						const result = await window.electronAPI.revealInFolder(filePath);
@@ -4561,13 +4516,13 @@ export default function VideoEditor() {
 	const handleExport = useCallback(
 		async (settings: ExportSettings) => {
 			if (!videoPath) {
-				toast.error("No video loaded");
+				toast.error("尚未加载视频");
 				return;
 			}
 
 			const video = videoPlaybackRef.current?.video;
 			if (!video) {
-				toast.error("Video not ready");
+				toast.error("视频尚未准备完成");
 				return;
 			}
 
@@ -4697,7 +4652,7 @@ export default function VideoEditor() {
 							setExportError(
 								"Save dialog canceled. Click Save Again to save without re-rendering.",
 							);
-							toast.info("Save canceled. You can save again without re-exporting.");
+							toast.info("已取消保存，可直接重新保存，无需重新导出。");
 							keepExportDialogOpen = true;
 						} else if (saveResult.success && saveResult.path) {
 							if (smokeExportStartedAt !== null) {
@@ -4952,7 +4907,7 @@ export default function VideoEditor() {
 							setExportError(
 								"Save dialog canceled. Click Save Again to save without re-rendering.",
 							);
-							toast.info("Save canceled. You can save again without re-exporting.");
+							toast.info("已取消保存，可直接重新保存，无需重新导出。");
 							keepExportDialogOpen = true;
 						} else if (saveResult.success && saveResult.path) {
 							if (smokeExportConfig.enabled) {
@@ -4992,13 +4947,13 @@ export default function VideoEditor() {
 									encodingMode,
 									shadowIntensity: effectiveShadowIntensity,
 									elapsedMs: smokeExportElapsedMs,
-									error: saveResult.message || "Failed to save video",
+									error: saveResult.message || "保存视频失败",
 									progressSamples: smokeProgressSamples,
 									metrics: result.metrics,
 								});
 							}
-							setExportError(saveResult.message || "Failed to save video");
-							showExportErrorToast(saveResult.message || "Failed to save video");
+							setExportError(saveResult.message || "保存视频失败");
+							showExportErrorToast(saveResult.message || "保存视频失败");
 							// Keep the pending-save entry so the user can retry without
 							// re-rendering. The temp file is still on disk (the main
 							// process only moves/deletes it on success) and the
@@ -5262,7 +5217,7 @@ export default function VideoEditor() {
 
 	const handleOpenExportDropdown = useCallback(() => {
 		if (!videoPath) {
-			toast.error("No video loaded");
+			toast.error("尚未加载视频");
 			return;
 		}
 
@@ -5279,11 +5234,11 @@ export default function VideoEditor() {
 	const handleStartExportFromDropdown = useCallback(() => {
 		const video = videoPlaybackRef.current?.video;
 		if (!videoPath) {
-			toast.error("No video loaded");
+			toast.error("尚未加载视频");
 			return;
 		}
 		if (!video) {
-			toast.error("Video not ready");
+			toast.error("视频尚未准备完成");
 			return;
 		}
 
@@ -5327,7 +5282,7 @@ export default function VideoEditor() {
 	const handleCancelExport = useCallback(() => {
 		if (exporterRef.current) {
 			exporterRef.current.cancel();
-			toast.info("Export canceled");
+			toast.info("已取消导出");
 			clearPendingExportSave();
 			setShowExportDropdown(false);
 			setIsExporting(false);
@@ -5377,7 +5332,7 @@ export default function VideoEditor() {
 
 		if (saveResult.canceled) {
 			setExportError("Save dialog canceled. Click Save Again to save without re-rendering.");
-			toast.info("Save canceled. You can try again.");
+			toast.info("已取消保存，你可以重新尝试。");
 			return;
 		}
 
@@ -5394,7 +5349,7 @@ export default function VideoEditor() {
 			return;
 		}
 
-		const errorMessage = saveResult.message || "Failed to save video";
+		const errorMessage = saveResult.message || "保存视频失败";
 		setExportError(errorMessage);
 		toast.error(errorMessage);
 	}, [showExportSuccessToast]);
@@ -5616,7 +5571,7 @@ export default function VideoEditor() {
 						<DialogDescription className="text-muted-foreground">
 							{t(
 								"editor.project.saveDescription",
-								"Name this project. It will be saved in your Recordly Projects folder.",
+								"为项目命名后保存。",
 							)}
 						</DialogDescription>
 					</DialogHeader>
@@ -5800,8 +5755,8 @@ export default function VideoEditor() {
 					>
 						<FolderOpen className="h-4 w-4" />
 					</Button>
-					<DiscordLinkButton />
-					<FeedbackDialog />
+					{null}
+					{null}
 					<div className="ml-1 h-5 w-px bg-foreground/10" />
 					<Button
 						type="button"
@@ -6273,18 +6228,10 @@ export default function VideoEditor() {
 												}}
 												transition={{ duration: 0.14 }}
 											>
-												{typeof section.icon === "string" ? (
-													<ExtensionIcon
-														icon={section.icon}
-														extensionPath={section.extensionPath}
-														className="h-[27px] w-[27px]"
-													/>
-												) : (
-													<section.icon
-														className="h-[27px] w-[27px]"
-														weight={isActive ? "fill" : "regular"}
-													/>
-												)}
+										<section.icon
+											className="h-[27px] w-[27px]"
+											weight={isActive ? "fill" : "regular"}
+										/>
 											</motion.span>
 										</motion.button>
 										<div className="ml-1.5 h-1.5 w-1.5 flex-shrink-0">
@@ -6321,10 +6268,7 @@ export default function VideoEditor() {
 							</div>
 						</div>
 						{/* Panel */}
-						{activeEffectSection === "extensions" ? (
-							<ExtensionManager />
-						) : (
-							<SettingsPanel
+						<SettingsPanel
 								panelMode="editor"
 								activeEffectSection={activeEffectSection}
 								selected={wallpaper}
@@ -6538,8 +6482,7 @@ export default function VideoEditor() {
 								}
 								onAnnotationBlurColorChange={handleAnnotationBlurColorChange}
 								onAnnotationDelete={handleAnnotationDelete}
-							/>
-						)}
+						/>
 					</div>
 					{/* Right column: preview + timeline */}
 					<div className="flex min-h-0 flex-1 flex-col gap-3">

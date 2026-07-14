@@ -42,6 +42,7 @@ const MICROPHONE_FALLBACK_ERROR_TOAST_ID = "recording-microphone-fallback-error"
 const MICROPHONE_SIDECAR_ERROR_TOAST_ID = "recording-microphone-sidecar-error";
 const PHONE_CAMERA_RECORDING_FRAME_RATE = 12;
 const PHONE_CAMERA_RECORDING_POLL_MS = 160;
+const PHONE_CAMERA_READY_TIMEOUT_MS = 8_000;
 export type BrowserMicrophoneProfile =
 	| "processed"
 	| "no-agc"
@@ -193,6 +194,22 @@ async function loadPhoneCameraFrameImage(frameDataUrl: string): Promise<HTMLImag
 	});
 }
 
+async function waitForPhoneCameraFrame(
+	timeoutMs = PHONE_CAMERA_READY_TIMEOUT_MS,
+): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		const frame = await window.electronAPI.phoneCameraGetFrame();
+		if (frame.success && frame.connected && frame.frameDataUrl) {
+			return true;
+		}
+		await new Promise<void>((resolve) => {
+			window.setTimeout(resolve, PHONE_CAMERA_RECORDING_POLL_MS);
+		});
+	}
+	return false;
+}
+
 export function normalizeBrowserMicrophoneProfile(value?: string | null): BrowserMicrophoneProfile {
 	const normalized = value?.trim().toLowerCase();
 	return normalized && BROWSER_MICROPHONE_PROFILES.has(normalized as BrowserMicrophoneProfile)
@@ -225,10 +242,7 @@ export function resolveBrowserCaptureCursorPolicy({
 export function shouldUseNativeWindowsCaptureForSource(
 	source: Pick<ProcessedDesktopSource, "id"> | null | undefined,
 ): boolean {
-	return (
-		source?.id?.startsWith("screen:") === true ||
-		source?.id?.startsWith("window:") === true
-	);
+	return source?.id?.startsWith("screen:") === true || source?.id?.startsWith("window:") === true;
 }
 
 export function createProcessedMicrophoneConstraints(
@@ -901,6 +915,13 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 	);
 
 	const stopWebcamRecorder = useCallback(async () => {
+		if (phoneCameraSessionActive.current) {
+			phoneCameraSessionActive.current = false;
+			void window.electronAPI.phoneCameraStop().catch((error) => {
+				console.warn("Failed to hide phone camera preview after recording:", error);
+			});
+		}
+
 		if (phoneCameraPollTimeout.current !== null) {
 			window.clearTimeout(phoneCameraPollTimeout.current);
 			phoneCameraPollTimeout.current = null;
@@ -990,13 +1011,29 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			webcamTimeOffsetMs.current = 0;
 			try {
 				const result = await window.electronAPI.phoneCameraStart({ reason: "recording" });
-				phoneCameraSessionActive.current = result.success;
 				if (!result.success) {
-					console.warn("Phone camera session failed to initialize:", result.error ?? result.message);
-					pendingWebcamPathPromise.current = Promise.resolve(null);
-					webcamStopPromise.current = Promise.resolve(null);
-					webcamRecorder.current = null;
-					return;
+					throw new Error(
+						result.error ??
+							result.message ??
+							"Phone camera session failed to initialize.",
+					);
+				}
+				if (!(await waitForPhoneCameraFrame())) {
+					throw new Error(
+						"Phone camera is not connected. Reconnect the phone, then start recording.",
+					);
+				}
+				phoneCameraSessionActive.current = true;
+
+				// Windows 10 cannot host a freely movable preview in the compact HUD fallback.
+				// It keeps the independent preview protected from screen capture instead.
+				try {
+					await window.electronAPI.phoneCameraPrepareRecordingPreview();
+				} catch (error) {
+					console.warn(
+						"Failed to prepare desktop phone preview before recording:",
+						error,
+					);
 				}
 
 				const canvas = document.createElement("canvas");
@@ -1062,7 +1099,9 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 							arrayBuffer,
 							webcamFileName,
 						);
-						webcamStopResolver.current?.(storeResult.success ? (storeResult.path ?? null) : null);
+						webcamStopResolver.current?.(
+							storeResult.success ? (storeResult.path ?? null) : null,
+						);
 					} catch (error) {
 						console.error("Error saving phone camera recording:", error);
 						webcamStopResolver.current?.(null);
@@ -1108,7 +1147,9 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 							const width =
 								frame.width && frame.width > 0 ? frame.width : image.naturalWidth;
 							const height =
-								frame.height && frame.height > 0 ? frame.height : image.naturalHeight;
+								frame.height && frame.height > 0
+									? frame.height
+									: image.naturalHeight;
 							if (width > 0 && height > 0 && phoneCameraCanvas.current) {
 								if (
 									phoneCameraCanvas.current.width !== width ||
@@ -1153,6 +1194,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				webcamRecorder.current = null;
 				phoneCameraCanvas.current = null;
 				console.warn("Phone camera session failed to initialize:", error);
+				throw error;
 			}
 			return;
 		}

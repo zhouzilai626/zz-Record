@@ -313,20 +313,29 @@ export function deriveNextId(prefix: string, ids: string[]): number {
 /**
  * Resolve a local file path to a URL the `<video>` element can load.
  *
- * Prefers the local media HTTP server (works on all platforms regardless of
- * Chromium's `file://` restrictions).  Falls back to a `file://` URL if the
- * media server is unavailable.
+ * Uses the local media HTTP server, which can safely serve approved paths to
+ * the HTTP renderer. A `file://` fallback is intentionally not used here:
+ * `webSecurity` blocks it from the packaged renderer and Pixi cannot consume
+ * it as a CORS-enabled source.
  */
 export async function resolveVideoUrl(sourcePath: string): Promise<string> {
+	if (!window.electronAPI?.getLocalMediaUrl) {
+		return toFileUrl(sourcePath);
+	}
+
 	try {
 		const result = await window.electronAPI.getLocalMediaUrl(sourcePath);
 		if (result.success) {
 			return result.url;
 		}
-	} catch {
-		// Media server unavailable — fall through to file:// URL.
+		throw new Error("The local media server could not provide this file.");
+	} catch (error) {
+		throw new Error(
+			`Unable to load local video through the secure media service: ${
+				error instanceof Error ? error.message : String(error)
+			}`,
+		);
 	}
-	return toFileUrl(sourcePath);
 }
 
 export function validateProjectData(candidate: unknown): candidate is EditorProjectData {

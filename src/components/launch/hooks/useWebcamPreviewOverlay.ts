@@ -1,11 +1,16 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
+import { type PointerEvent, useCallback, useEffect, useRef, useState } from "react";
 import { isPhoneCameraDeviceId } from "@/lib/phoneCamera";
-import { canShowFloatingWebcamPreview } from "../floatingWebcamPreview";
+import { shouldShowExternalLocalWebcamPreview } from "../floatingWebcamPreview";
 
 const WEBCAM_PREVIEW_DRAG_THRESHOLD = 6;
 const DEFAULT_WEBCAM_PREVIEW_OFFSET = { x: 0, y: 0 };
+const DEFAULT_WEBCAM_PREVIEW_SIZE = 288;
+const MIN_WEBCAM_PREVIEW_SIZE = 144;
+const MAX_WEBCAM_PREVIEW_SIZE = 480;
 const PHONE_CAMERA_PREVIEW_FPS = 12;
 const PHONE_CAMERA_PREVIEW_POLL_MS = 220;
+const LOCAL_CAMERA_OVERLAY_PREVIEW_FPS = 12;
+const LOCAL_CAMERA_OVERLAY_PREVIEW_POLL_MS = 84;
 
 async function loadImageElement(src: string): Promise<HTMLImageElement> {
 	return await new Promise((resolve, reject) => {
@@ -17,20 +22,21 @@ async function loadImageElement(src: string): Promise<HTMLImageElement> {
 }
 
 export function useWebcamPreviewOverlay({
+	recording,
 	webcamEnabled,
 	webcamDeviceId,
 	showWebcamControls,
 	webcamPopoverOpen,
-	hudOverlayMousePassthroughSupported,
 }: {
+	recording: boolean;
 	webcamEnabled: boolean;
 	webcamDeviceId?: string;
 	showWebcamControls: boolean;
 	webcamPopoverOpen: boolean;
-	hudOverlayMousePassthroughSupported: boolean | null;
 }) {
 	const [showFloatingWebcamPreview, setShowFloatingWebcamPreview] = useState(true);
 	const [webcamPreviewOffset, setWebcamPreviewOffset] = useState(DEFAULT_WEBCAM_PREVIEW_OFFSET);
+	const [webcamPreviewSize, setWebcamPreviewSize] = useState(DEFAULT_WEBCAM_PREVIEW_SIZE);
 	const webcamPreviewOffsetRef = useRef(DEFAULT_WEBCAM_PREVIEW_OFFSET);
 	const webcamPreviewRef = useRef<HTMLVideoElement | null>(null);
 	const recordingWebcamPreviewRef = useRef<HTMLVideoElement | null>(null);
@@ -39,6 +45,9 @@ export function useWebcamPreviewOverlay({
 	const phonePreviewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 	const phonePreviewPollTimeoutRef = useRef<number | null>(null);
 	const phonePreviewInFlightRef = useRef(false);
+	const localOverlayVideoRef = useRef<HTMLVideoElement | null>(null);
+	const localOverlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+	const localOverlayPollTimeoutRef = useRef<number | null>(null);
 	const previewDragMoveRafRef = useRef<number | null>(null);
 	const previewDragPendingPointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
 	const webcamPreviewDragStartRef = useRef<{
@@ -55,15 +64,22 @@ export function useWebcamPreviewOverlay({
 	} | null>(null);
 	const isWebcamPreviewDraggingRef = useRef(false);
 	const isPhoneCameraPreview = webcamEnabled && isPhoneCameraDeviceId(webcamDeviceId);
-	const showRecordingWebcamPreview =
-		webcamEnabled &&
-		canShowFloatingWebcamPreview(
-			showFloatingWebcamPreview,
-			hudOverlayMousePassthroughSupported,
+	const adjustWebcamPreviewSize = useCallback((delta: number) => {
+		setWebcamPreviewSize((current) =>
+			Math.max(MIN_WEBCAM_PREVIEW_SIZE, Math.min(MAX_WEBCAM_PREVIEW_SIZE, current + delta)),
 		);
+	}, []);
+	const resetWebcamPreviewSize = useCallback(() => {
+		setWebcamPreviewSize(DEFAULT_WEBCAM_PREVIEW_SIZE);
+	}, []);
+	// Keep recording previews in a protected native window. Rendering one inside the
+	// HUD can make it part of the captured display and duplicate the saved webcam layer.
+	const showRecordingWebcamPreview = false;
 	const shouldStreamWebcamPreview =
 		webcamEnabled &&
-		(showRecordingWebcamPreview || (showWebcamControls && webcamPopoverOpen));
+		(showRecordingWebcamPreview ||
+			(showWebcamControls && webcamPopoverOpen) ||
+			shouldShowExternalLocalWebcamPreview(webcamEnabled, isPhoneCameraPreview));
 
 	useEffect(() => {
 		if (!webcamEnabled) {
@@ -75,35 +91,33 @@ export function useWebcamPreviewOverlay({
 			webcamPreviewDragStartRef.current = null;
 			isWebcamPreviewDraggingRef.current = false;
 			setShowFloatingWebcamPreview(true);
+			setWebcamPreviewSize(DEFAULT_WEBCAM_PREVIEW_SIZE);
 		}
 	}, [webcamEnabled]);
 
-	const handleWebcamPreviewPointerDown = useCallback(
-		(event: PointerEvent<HTMLDivElement>) => {
-			if (event.button !== 0) {
-				return;
-			}
+	const handleWebcamPreviewPointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
+		if (event.button !== 0) {
+			return;
+		}
 
-			const previewRect = event.currentTarget.getBoundingClientRect();
+		const previewRect = event.currentTarget.getBoundingClientRect();
 
-			event.preventDefault();
-			window.electronAPI?.hudOverlaySetIgnoreMouse?.(false);
-			webcamPreviewDragStartRef.current = {
-				pointerId: event.pointerId,
-				startX: event.clientX,
-				startY: event.clientY,
-				originX: webcamPreviewOffsetRef.current.x,
-				originY: webcamPreviewOffsetRef.current.y,
-				initialLeft: previewRect.left,
-				initialTop: previewRect.top,
-				previewWidth: previewRect.width,
-				previewHeight: previewRect.height,
-				dragging: false,
-			};
-			event.currentTarget.setPointerCapture(event.pointerId);
-		},
-		[],
-	);
+		event.preventDefault();
+		window.electronAPI?.hudOverlaySetIgnoreMouse?.(false);
+		webcamPreviewDragStartRef.current = {
+			pointerId: event.pointerId,
+			startX: event.clientX,
+			startY: event.clientY,
+			originX: webcamPreviewOffsetRef.current.x,
+			originY: webcamPreviewOffsetRef.current.y,
+			initialLeft: previewRect.left,
+			initialTop: previewRect.top,
+			previewWidth: previewRect.width,
+			previewHeight: previewRect.height,
+			dragging: false,
+		};
+		event.currentTarget.setPointerCapture(event.pointerId);
+	}, []);
 
 	const handleWebcamPreviewPointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
 		const dragState = webcamPreviewDragStartRef.current;
@@ -272,9 +286,14 @@ export function useWebcamPreviewOverlay({
 							const frame = await window.electronAPI.phoneCameraGetFrame();
 							if (frame.success && frame.frameDataUrl) {
 								const image = await loadImageElement(frame.frameDataUrl);
-								const width = frame.width && frame.width > 0 ? frame.width : image.naturalWidth;
+								const width =
+									frame.width && frame.width > 0
+										? frame.width
+										: image.naturalWidth;
 								const height =
-									frame.height && frame.height > 0 ? frame.height : image.naturalHeight;
+									frame.height && frame.height > 0
+										? frame.height
+										: image.naturalHeight;
 								if (width > 0 && height > 0) {
 									if (canvas.width !== width || canvas.height !== height) {
 										canvas.width = width;
@@ -308,12 +327,12 @@ export function useWebcamPreviewOverlay({
 								width: { ideal: 320 },
 								height: { ideal: 320 },
 								frameRate: { ideal: 24, max: 30 },
-						  }
+							}
 						: {
 								width: { ideal: 320 },
 								height: { ideal: 320 },
 								frameRate: { ideal: 24, max: 30 },
-						  },
+							},
 					audio: false,
 				});
 
@@ -325,6 +344,52 @@ export function useWebcamPreviewOverlay({
 				previewStreamRef.current = previewStream;
 				attachPreviewStreamToNode(webcamPreviewRef.current);
 				attachPreviewStreamToNode(recordingWebcamPreviewRef.current);
+
+				void window.electronAPI.cameraOverlayShowLocal({ excludeFromCapture: recording }).catch((error) => {
+					console.warn("Failed to show local camera overlay:", error);
+				});
+				const overlayVideo = document.createElement("video");
+				overlayVideo.muted = true;
+				overlayVideo.playsInline = true;
+				overlayVideo.srcObject = previewStream;
+				localOverlayVideoRef.current = overlayVideo;
+				const overlayCanvas = document.createElement("canvas");
+				localOverlayCanvasRef.current = overlayCanvas;
+				const overlayContext = overlayCanvas.getContext("2d");
+				if (!overlayContext) {
+					throw new Error("Failed to create local camera overlay canvas");
+				}
+				void overlayVideo.play().catch(() => {
+					// The visible preview remains available even if the background sender is interrupted.
+				});
+
+				const forwardLocalOverlayFrame = () => {
+					if (!mounted || localOverlayVideoRef.current !== overlayVideo) {
+						return;
+					}
+					const width = overlayVideo.videoWidth;
+					const height = overlayVideo.videoHeight;
+					if (width > 0 && height > 0) {
+						if (overlayCanvas.width !== width || overlayCanvas.height !== height) {
+							overlayCanvas.width = width;
+							overlayCanvas.height = height;
+						}
+						overlayContext.drawImage(overlayVideo, 0, 0, width, height);
+						window.electronAPI.cameraOverlaySendLocalFrame({
+							frameDataUrl: overlayCanvas.toDataURL("image/jpeg", 0.72),
+							width,
+							height,
+						});
+					}
+					localOverlayPollTimeoutRef.current = window.setTimeout(
+						forwardLocalOverlayFrame,
+						LOCAL_CAMERA_OVERLAY_PREVIEW_POLL_MS,
+					);
+				};
+				localOverlayPollTimeoutRef.current = window.setTimeout(
+					forwardLocalOverlayFrame,
+					Math.round(1000 / LOCAL_CAMERA_OVERLAY_PREVIEW_FPS),
+				);
 			} catch (error) {
 				console.warn("Failed to start live webcam preview:", error);
 			}
@@ -353,9 +418,28 @@ export function useWebcamPreviewOverlay({
 			if (previewStreamRef.current === previewStream) {
 				previewStreamRef.current = null;
 			}
+			if (localOverlayPollTimeoutRef.current !== null) {
+				window.clearTimeout(localOverlayPollTimeoutRef.current);
+			}
+			localOverlayPollTimeoutRef.current = null;
+			if (localOverlayVideoRef.current) {
+				localOverlayVideoRef.current.pause();
+				localOverlayVideoRef.current.srcObject = null;
+			}
+			localOverlayVideoRef.current = null;
+			localOverlayCanvasRef.current = null;
+			if (!isPhoneCameraPreview) {
+				void window.electronAPI.cameraOverlayHideLocal();
+			}
 			phonePreviewCanvasRef.current = null;
 		};
-	}, [attachPreviewStreamToNode, isPhoneCameraPreview, shouldStreamWebcamPreview, webcamDeviceId]);
+	}, [
+		attachPreviewStreamToNode,
+		isPhoneCameraPreview,
+		recording,
+		shouldStreamWebcamPreview,
+		webcamDeviceId,
+	]);
 
 	return {
 		showFloatingWebcamPreview,
@@ -370,5 +454,8 @@ export function useWebcamPreviewOverlay({
 		setWebcamPreviewNode,
 		setRecordingWebcamPreviewNode,
 		showRecordingWebcamPreview,
+		webcamPreviewSize,
+		adjustWebcamPreviewSize,
+		resetWebcamPreviewSize,
 	};
 }

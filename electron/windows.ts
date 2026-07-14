@@ -3,11 +3,16 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, screen } from "electron";
 import { USER_DATA_PATH } from "./appPaths";
 import { getHudOverlayWindowBounds, resizeHudOverlayFallbackBounds } from "./hudOverlayBounds";
-import { getPackagedRendererBaseUrl } from "./rendererServer";
 import { getPhoneCameraOverlayHtml } from "./phone-camera/overlayContent";
+import {
+	movePhoneCameraOverlayBounds,
+	normalizePhoneCameraOverlaySettings,
+	resizePhoneCameraOverlayBounds,
+} from "./phoneCameraOverlaySettings";
+import { getPackagedRendererBaseUrl } from "./rendererServer";
 
 const electronWindowsDir = path.dirname(fileURLToPath(import.meta.url));
 const nodeRequire = createRequire(import.meta.url);
@@ -34,8 +39,14 @@ let hudOverlayRecordingActive = false;
 let countdownWindow: BrowserWindow | null = null;
 let updateToastWindow: BrowserWindow | null = null;
 let phoneCameraPairingWindow: BrowserWindow | null = null;
+let cameraOverlaySource: "phone" | "local" | null = null;
 
 const HUD_OVERLAY_SETTINGS_FILE = path.join(USER_DATA_PATH, "hud-overlay-settings.json");
+const PHONE_CAMERA_OVERLAY_SETTINGS_FILE = path.join(
+	USER_DATA_PATH,
+	"phone-camera-overlay-settings.json",
+);
+const PHONE_CAMERA_OVERLAY_SETTINGS_VERSION = 2;
 const HUD_EDGE_MARGIN_DIP = 16;
 const UPDATE_TOAST_WIDTH = 456;
 const UPDATE_TOAST_HEIGHT = 252;
@@ -394,6 +405,9 @@ ipcMain.on("hud-overlay-hide", () => {
 	if (hudOverlayWindow && !hudOverlayWindow.isDestroyed()) {
 		hudOverlayWindow.minimize();
 	}
+	// The camera preview is a separate always-on-top window, so it must follow
+	// the recording controls instead of remaining visible after the HUD is hidden.
+	hidePhoneCameraOverlayWindow();
 });
 
 ipcMain.handle("get-hud-overlay-capture-protection", () => {
@@ -455,7 +469,7 @@ export function createHudOverlayWindow(): BrowserWindow {
 			preload: path.join(electronWindowsDir, "preload.mjs"),
 			nodeIntegration: false,
 			contextIsolation: true,
-			webSecurity: false,
+			webSecurity: true,
 			backgroundThrottling: false,
 		},
 	});
@@ -854,14 +868,14 @@ export function createEditorWindow(): BrowserWindow {
 		resizable: true,
 		alwaysOnTop: false,
 		skipTaskbar: false,
-		title: "Recordly",
+		title: "ZZ Record",
 		show: false,
 		backgroundColor: "#000000",
 		webPreferences: {
 			preload: path.join(electronWindowsDir, "preload.mjs"),
 			nodeIntegration: false,
 			contextIsolation: true,
-			webSecurity: false,
+			webSecurity: true,
 			backgroundThrottling: false,
 		},
 	});
@@ -1027,23 +1041,20 @@ export function closeCountdownWindow(): void {
 	}
 }
 
-
 export function createPhoneCameraPairingWindow(): BrowserWindow {
 	const primaryDisplay = getScreen().getPrimaryDisplay();
-	const { width, height } = primaryDisplay.workAreaSize;
-	const windowWidth = 920;
-	const windowHeight = 640;
-	const x = Math.round((width - windowWidth) / 2);
-	const y = Math.round((height - windowHeight) / 2);
+	const { x: workAreaX, y: workAreaY, width, height } = primaryDisplay.workArea;
+	const windowWidth = 540;
+	const windowHeight = 590;
+	const x = Math.round(workAreaX + (width - windowWidth) / 2);
+	const y = Math.round(workAreaY + (height - windowHeight) / 2);
 
 	const win = new BrowserWindow({
 		width: windowWidth,
 		height: windowHeight,
 		x,
 		y,
-		minWidth: 820,
-		minHeight: 560,
-		resizable: true,
+		resizable: false,
 		autoHideMenuBar: true,
 		show: false,
 		backgroundColor: "#07111f",
@@ -1121,25 +1132,220 @@ export function closePhoneCameraPairingWindow(): void {
 // ---- Phone Camera Overlay ----
 let phoneCameraOverlayWindow: BrowserWindow | null = null;
 
+// Keep the live phone view compact enough for everyday recording without hiding the content behind it.
+const PHONE_CAMERA_OVERLAY_SIZE = 200;
+const PHONE_CAMERA_OVERLAY_MARGIN = 24;
+const PHONE_CAMERA_OVERLAY_SHADOW_PADDING = 30;
+const PHONE_CAMERA_OVERLAY_WINDOW_SIZE =
+	PHONE_CAMERA_OVERLAY_SIZE + PHONE_CAMERA_OVERLAY_SHADOW_PADDING * 2;
+const PHONE_CAMERA_OVERLAY_MIN_WINDOW_SIZE = 160;
+const PHONE_CAMERA_OVERLAY_MAX_WINDOW_SIZE = 640;
+
+type PhoneCameraOverlayInteraction = {
+	kind: "move" | "resize";
+	startScreenX: number;
+	startScreenY: number;
+	bounds: Electron.Rectangle;
+};
+
+let phoneCameraOverlayInteraction: PhoneCameraOverlayInteraction | null = null;
+
+function readPhoneCameraOverlaySettings(): unknown {
+	try {
+		const value = JSON.parse(fs.readFileSync(PHONE_CAMERA_OVERLAY_SETTINGS_FILE, "utf8")) as {
+			version?: unknown;
+		};
+		return value.version === PHONE_CAMERA_OVERLAY_SETTINGS_VERSION ? value : null;
+	} catch {
+		return null;
+	}
+}
+
+function persistPhoneCameraOverlaySettings(win: BrowserWindow): void {
+	if (win.isDestroyed()) {
+		return;
+	}
+
+	try {
+		const bounds = win.getBounds();
+		fs.mkdirSync(path.dirname(PHONE_CAMERA_OVERLAY_SETTINGS_FILE), { recursive: true });
+		fs.writeFileSync(
+			PHONE_CAMERA_OVERLAY_SETTINGS_FILE,
+			JSON.stringify({
+				version: PHONE_CAMERA_OVERLAY_SETTINGS_VERSION,
+				x: bounds.x,
+				y: bounds.y,
+				size: bounds.width,
+			}),
+			"utf8",
+		);
+	} catch (error) {
+		console.warn("[phone-camera] Failed to save preview position:", error);
+	}
+}
+
+function setPhoneCameraOverlayWindowSize(
+	size: number,
+	anchor: "top-left" | "bottom-right" = "top-left",
+): void {
+	const win = getPhoneCameraOverlayWindow();
+	if (!win) {
+		return;
+	}
+
+	const limits = {
+		minSize: PHONE_CAMERA_OVERLAY_MIN_WINDOW_SIZE,
+		maxSize: PHONE_CAMERA_OVERLAY_MAX_WINDOW_SIZE,
+	};
+	const requestedBounds = resizePhoneCameraOverlayBounds(win.getBounds(), size, limits, anchor);
+	const workArea = screen.getDisplayMatching(requestedBounds).workArea;
+	const nextBounds = normalizePhoneCameraOverlaySettings(
+		{ x: requestedBounds.x, y: requestedBounds.y, size: requestedBounds.width },
+		workArea,
+		limits,
+	);
+	if (!nextBounds) {
+		return;
+	}
+	win.setBounds({
+		x: nextBounds.x,
+		y: nextBounds.y,
+		width: nextBounds.size,
+		height: nextBounds.size,
+	});
+	persistPhoneCameraOverlaySettings(win);
+}
+
+function positionPhoneCameraOverlayWindow(win: BrowserWindow): void {
+	const workArea = screen.getPrimaryDisplay().workArea;
+	const saved = normalizePhoneCameraOverlaySettings(readPhoneCameraOverlaySettings(), workArea, {
+		minSize: PHONE_CAMERA_OVERLAY_MIN_WINDOW_SIZE,
+		maxSize: PHONE_CAMERA_OVERLAY_MAX_WINDOW_SIZE,
+	});
+	if (saved) {
+		win.setBounds({ x: saved.x, y: saved.y, width: saved.size, height: saved.size });
+		return;
+	}
+	win.setPosition(
+		workArea.x +
+			workArea.width -
+			PHONE_CAMERA_OVERLAY_MARGIN -
+			PHONE_CAMERA_OVERLAY_SIZE -
+			PHONE_CAMERA_OVERLAY_SHADOW_PADDING,
+		workArea.y +
+			workArea.height -
+			PHONE_CAMERA_OVERLAY_MARGIN -
+			PHONE_CAMERA_OVERLAY_SIZE -
+			PHONE_CAMERA_OVERLAY_SHADOW_PADDING,
+	);
+}
+
+function updatePhoneCameraOverlayInteraction(
+	kind: PhoneCameraOverlayInteraction["kind"],
+	phase: "start" | "move" | "end",
+	screenX: number,
+	screenY: number,
+): void {
+	const win = getPhoneCameraOverlayWindow();
+	if (!win || !Number.isFinite(screenX) || !Number.isFinite(screenY)) {
+		return;
+	}
+
+	if (phase === "start") {
+		phoneCameraOverlayInteraction = {
+			kind,
+			startScreenX: screenX,
+			startScreenY: screenY,
+			bounds: win.getBounds(),
+		};
+		return;
+	}
+
+	const interaction = phoneCameraOverlayInteraction;
+	if (!interaction || interaction.kind !== kind) {
+		return;
+	}
+
+	if (phase === "end") {
+		if (kind === "move") {
+			const currentBounds = win.getBounds();
+			win.setBounds({
+				x: currentBounds.x,
+				y: currentBounds.y,
+				width: interaction.bounds.width,
+				height: interaction.bounds.height,
+			});
+		}
+		phoneCameraOverlayInteraction = null;
+		persistPhoneCameraOverlaySettings(win);
+		return;
+	}
+
+	const deltaX = Math.round(screenX - interaction.startScreenX);
+	const deltaY = Math.round(screenY - interaction.startScreenY);
+	if (kind === "move") {
+		win.setBounds(movePhoneCameraOverlayBounds(interaction.bounds, deltaX, deltaY));
+		return;
+	}
+
+	// Down/right grows; up/left shrinks. Averaging prevents diagonal wobble.
+	const sizeDelta = Math.round((deltaX + deltaY) / 2);
+	setPhoneCameraOverlayWindowSize(interaction.bounds.width + sizeDelta);
+}
+
+ipcMain.on(
+	"phone-camera-overlay:interact",
+	(
+		_event,
+		kind: PhoneCameraOverlayInteraction["kind"],
+		phase,
+		screenX: number,
+		screenY: number,
+	) => {
+		if (
+			(kind !== "move" && kind !== "resize") ||
+			(phase !== "start" && phase !== "move" && phase !== "end")
+		) {
+			return;
+		}
+		updatePhoneCameraOverlayInteraction(kind, phase, screenX, screenY);
+	},
+);
+
+ipcMain.on("phone-camera-overlay:resize-by", (_event, delta: number) => {
+	if (!Number.isFinite(delta) || Math.abs(delta) > PHONE_CAMERA_OVERLAY_MAX_WINDOW_SIZE) {
+		return;
+	}
+
+	const win = getPhoneCameraOverlayWindow();
+	if (win) {
+		setPhoneCameraOverlayWindowSize(win.getBounds().width + delta, "bottom-right");
+	}
+});
+
+ipcMain.on("phone-camera-overlay:reset-size", () => {
+	setPhoneCameraOverlayWindowSize(PHONE_CAMERA_OVERLAY_WINDOW_SIZE, "bottom-right");
+});
+
 export function createPhoneCameraOverlayWindow(): BrowserWindow {
 	if (phoneCameraOverlayWindow && !phoneCameraOverlayWindow.isDestroyed()) {
 		return phoneCameraOverlayWindow;
 	}
 
 	const win = new BrowserWindow({
-		width: 320,
-		height: 480,
-		x: 120,
-		y: 80,
+		width: PHONE_CAMERA_OVERLAY_WINDOW_SIZE,
+		height: PHONE_CAMERA_OVERLAY_WINDOW_SIZE,
 		frame: false,
-		transparent: false,
-		backgroundColor: "#000000",
-		resizable: true,
+		transparent: true,
+		backgroundColor: "#00000000",
+		resizable: false,
+		minWidth: PHONE_CAMERA_OVERLAY_MIN_WINDOW_SIZE,
+		minHeight: PHONE_CAMERA_OVERLAY_MIN_WINDOW_SIZE,
 		alwaysOnTop: true,
 		skipTaskbar: true,
-		hasShadow: true,
+		hasShadow: false,
 		show: false,
-		focusable: false,
+		focusable: true,
 		title: "Recordly Phone Camera",
 		webPreferences: {
 			preload: path.join(electronWindowsDir, "preload.mjs"),
@@ -1152,6 +1358,7 @@ export function createPhoneCameraOverlayWindow(): BrowserWindow {
 	phoneCameraOverlayWindow = win;
 
 	win.once("ready-to-show", () => {
+		positionPhoneCameraOverlayWindow(win);
 		win.show();
 		win.moveTop();
 	});
@@ -1163,15 +1370,19 @@ export function createPhoneCameraOverlayWindow(): BrowserWindow {
 	});
 
 	const html = getPhoneCameraOverlayHtml();
-	win.loadURL(
-		`data:text/html;charset=utf-8,${encodeURIComponent(html)}`,
-	);
+	win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
 	return win;
 }
 
-export function showPhoneCameraOverlayWindow(): BrowserWindow | null {
+export function showPhoneCameraOverlayWindow(options?: {
+	excludeFromCapture?: boolean;
+}): BrowserWindow | null {
+	cameraOverlaySource = "phone";
 	const win = getPhoneCameraOverlayWindow() ?? createPhoneCameraOverlayWindow();
+	if (isHudOverlayCaptureProtectionSupported()) {
+		win.setContentProtection(Boolean(options?.excludeFromCapture));
+	}
 	if (!win.isVisible()) {
 		win.show();
 		win.moveTop();
@@ -1179,8 +1390,78 @@ export function showPhoneCameraOverlayWindow(): BrowserWindow | null {
 	return win;
 }
 
+export function showLocalCameraOverlayWindow(options?: {
+	excludeFromCapture?: boolean;
+}): BrowserWindow | null {
+	cameraOverlaySource = "local";
+	const win = getPhoneCameraOverlayWindow() ?? createPhoneCameraOverlayWindow();
+	if (isHudOverlayCaptureProtectionSupported()) {
+		win.setContentProtection(Boolean(options?.excludeFromCapture));
+	}
+	if (!win.isVisible()) {
+		win.show();
+		win.moveTop();
+	}
+	return win;
+}
+
+export function hideLocalCameraOverlayWindow(): void {
+	if (cameraOverlaySource !== "local") {
+		return;
+	}
+	hidePhoneCameraOverlayWindow();
+}
+
+export function sendLocalCameraOverlayFrame(payload: {
+	frameDataUrl: string;
+	width?: number;
+	height?: number;
+}): void {
+	if (
+		cameraOverlaySource !== "local" ||
+		!/^data:image\/(jpeg|jpg|png);base64,[A-Za-z0-9+/=]+$/i.test(payload.frameDataUrl) ||
+		payload.frameDataUrl.length > 2 * 1024 * 1024
+	) {
+		return;
+	}
+
+	const win = getPhoneCameraOverlayWindow();
+	if (!win) {
+		return;
+	}
+	win.webContents.send("recordly-phone-camera:frame", payload);
+}
+
+ipcMain.handle("recordly-camera-overlay:show-local", (_event, options?: { excludeFromCapture?: boolean }) => {
+	showLocalCameraOverlayWindow(options);
+	return { success: true };
+});
+
+ipcMain.handle("recordly-camera-overlay:hide-local", () => {
+	hideLocalCameraOverlayWindow();
+	return { success: true };
+});
+
+ipcMain.on("recordly-camera-overlay:local-frame", (_event, payload: unknown) => {
+	if (!payload || typeof payload !== "object") {
+		return;
+	}
+	const frame = payload as { frameDataUrl?: unknown; width?: unknown; height?: unknown };
+	if (typeof frame.frameDataUrl !== "string") {
+		return;
+	}
+	sendLocalCameraOverlayFrame({
+		frameDataUrl: frame.frameDataUrl,
+		width: typeof frame.width === "number" ? frame.width : undefined,
+		height: typeof frame.height === "number" ? frame.height : undefined,
+	});
+});
 export function hidePhoneCameraOverlayWindow(): void {
+	cameraOverlaySource = null;
 	if (phoneCameraOverlayWindow && !phoneCameraOverlayWindow.isDestroyed()) {
+		if (isHudOverlayCaptureProtectionSupported()) {
+			phoneCameraOverlayWindow.setContentProtection(false);
+		}
 		phoneCameraOverlayWindow.hide();
 	}
 }

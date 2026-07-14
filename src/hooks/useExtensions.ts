@@ -120,7 +120,7 @@ export function useExtensions(): UseExtensionsResult {
 			try {
 				if (activeIds.has(id)) {
 					await extensionHost.deactivateExtension(id);
-					await electronAPI?.extensionsDisable(id);
+					await electronAPI?.extensionsDisable?.(id);
 					setExtensions((prev) =>
 						prev.map((ext) =>
 							ext.manifest.id === id ? { ...ext, status: "disabled" } : ext,
@@ -131,7 +131,7 @@ export function useExtensions(): UseExtensionsResult {
 					if (!ext) return;
 
 					try {
-						await electronAPI?.extensionsEnable(id);
+						await electronAPI?.extensionsEnable?.(id);
 
 						const moduleUrl = createExtensionModuleUrl(ext.path, ext.manifest.main);
 						await extensionHost.activateExtension(ext, moduleUrl);
@@ -143,7 +143,7 @@ export function useExtensions(): UseExtensionsResult {
 							),
 						);
 					} catch (err) {
-						await electronAPI?.extensionsDisable(id);
+						await electronAPI?.extensionsDisable?.(id);
 						setExtensions((prev) =>
 							prev.map((candidate) =>
 								candidate.manifest.id === id
@@ -169,7 +169,7 @@ export function useExtensions(): UseExtensionsResult {
 		if (result?.success) {
 			const extensionId = result.extension?.manifest?.id;
 			if (typeof extensionId === "string") {
-				await electronAPI?.extensionsEnable(extensionId);
+				await electronAPI?.extensionsEnable?.(extensionId);
 			}
 			await discoverAndSync();
 			return true;
@@ -193,7 +193,7 @@ export function useExtensions(): UseExtensionsResult {
 	);
 
 	const openDirectory = useCallback(async () => {
-		await electronAPI?.extensionsOpenDirectory();
+		await electronAPI?.extensionsOpenDirectory?.();
 	}, []);
 
 	const marketplaceSearch = useCallback(
@@ -230,7 +230,7 @@ export function useExtensions(): UseExtensionsResult {
 			}
 			const result = await electronAPI.extensionsMarketplaceInstall(extensionId, downloadUrl);
 			if (result.success) {
-				await electronAPI?.extensionsEnable(extensionId);
+				await electronAPI?.extensionsEnable?.(extensionId);
 				await discoverAndSync();
 			}
 			return result;

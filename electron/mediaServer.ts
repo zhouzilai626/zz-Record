@@ -211,6 +211,9 @@ export async function ensureMediaServer(): Promise<string> {
 		});
 
 		server.once("error", (error) => {
+			// A failed listen must not poison future attempts. The project IPC retries
+			// lazily when an editor needs to load media.
+			mediaServerStartPromise = null;
 			reject(error);
 		});
 
@@ -218,6 +221,7 @@ export async function ensureMediaServer(): Promise<string> {
 			const address = server.address();
 			if (!address || typeof address === "string") {
 				server.close();
+				mediaServerStartPromise = null;
 				reject(new Error("Media server did not expose a TCP address"));
 				return;
 			}

@@ -159,6 +159,7 @@ import {
 	DEFAULT_ZOOM_OUT_EASING,
 	getDefaultCaptionFontFamily,
 } from "./types";
+import { loadCorsVideoSource } from "./videoPlayback/corsVideoSource";
 import {
 	type CursorFollowCameraState,
 	computeCursorFollowFocus,
@@ -2247,6 +2248,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 		useEffect(() => {
 			const video = videoRef.current;
 			if (!video) return;
+			loadCorsVideoSource(video, videoPath);
 			video.pause();
 			video.currentTime = 0;
 			allowPlaybackRef.current = false;
@@ -3452,7 +3454,6 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 					browser continues producing presented frames for Pixi and preview sync. */}
 				<video
 					ref={videoRef}
-					src={videoPath}
 					className={fallbackVideoClassName}
 					preload="metadata"
 					playsInline
