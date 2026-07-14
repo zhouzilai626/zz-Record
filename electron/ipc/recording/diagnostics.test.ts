@@ -75,8 +75,8 @@ describe("getCompanionAudioFallbackPaths", () => {
 
 		await Promise.all([
 			fs.writeFile(videoPath, "video"),
-			fs.writeFile(systemPath, "system"),
-			fs.writeFile(micPath, "mic"),
+			fs.writeFile(systemPath, Buffer.alloc(48)),
+			fs.writeFile(micPath, Buffer.alloc(48)),
 		]);
 
 		execFileMock.mockImplementation(
@@ -107,8 +107,8 @@ describe("getCompanionAudioFallbackPaths", () => {
 
 		await Promise.all([
 			fs.writeFile(videoPath, "video"),
-			fs.writeFile(systemPath, "system"),
-			fs.writeFile(micPath, "mic"),
+			fs.writeFile(systemPath, Buffer.alloc(48)),
+			fs.writeFile(micPath, Buffer.alloc(48)),
 		]);
 
 		execFileMock.mockImplementation(
@@ -132,6 +132,35 @@ describe("getCompanionAudioFallbackPaths", () => {
 			videoPath,
 			micPath,
 		]);
+	});
+
+	it("ignores empty WAV sidecars that contain only the file header", async () => {
+		const videoPath = path.join(tempRoot, "recording.mp4");
+		const systemPath = path.join(tempRoot, "recording.system.wav");
+		const micPath = path.join(tempRoot, "recording.mic.wav");
+
+		await Promise.all([
+			fs.writeFile(videoPath, "video"),
+			fs.writeFile(systemPath, Buffer.alloc(44)),
+			fs.writeFile(micPath, Buffer.alloc(48)),
+		]);
+
+		execFileMock.mockImplementation(
+			(
+				_file: string,
+				_args: string[],
+				_options: Record<string, unknown>,
+				callback: ExecFileCallback,
+			) => {
+				const error = new Error("ffmpeg probe failed") as Error & { stderr?: string };
+				error.stderr = "Stream #0:0: Video: h264";
+				callback(error, "", error.stderr);
+			},
+		);
+
+		const { getCompanionAudioFallbackPaths } = await import("./diagnostics");
+
+		await expect(getCompanionAudioFallbackPaths(videoPath)).resolves.toEqual([micPath]);
 	});
 
 	it("prefers the mac mic companion alone when embedded audio already exists and no system sidecar is present", async () => {

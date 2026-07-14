@@ -1,63 +1,36 @@
-# Contribution Guidelines
+# Contributing to ZZ Record
 
-Thank you for considering contributing to this project! By contributing, you help make this project better for everyone. Please take a moment to review these guidelines to ensure a smooth contribution process.
+Thank you for helping improve ZZ Record. Please keep each pull request focused on one user-facing problem or one maintainability improvement.
 
-Areas where help is especially valuable:
-- Export optimisations
-- Native screen recording for Linux
-- Wallpaper submissions
-- Extensions (device frames, click effects, render hooks — see [EXTENSIONS.md](./EXTENSIONS.md))
+## Before opening a pull request
 
-## How to Contribute
+1. Search existing issues and pull requests to avoid duplicate work.
+2. Create a branch from `main` and describe the user scenario your change addresses.
+3. Run the relevant tests. At minimum, run `npx tsc --noEmit`; run `npm test -- --reporter=dot` when the change affects shared behavior.
+4. For recording, camera, audio, editor, or export changes, include concise manual verification steps and screenshots or a short recording when useful.
 
-1. **Fork the Repository**
-   - Click the "Fork" button at the top right of this repository to create your own copy.
+## Development setup
 
-2. **Clone Your Fork**
-   - Clone your forked repository to your local machine:
-     ```bash
-     git clone https://github.com/your-username/Recordly.git
-     ```
+```bash
+git clone https://github.com/zhouzilai626/zz-Record.git
+cd zz-Record
+npm install
+npm run dev
+```
 
-3. **Create a New Branch**
-   - Create a branch for your feature or bug fix:
-     ```bash
-     git checkout -b feature/your-feature-name
-     ```
+Windows native helpers require Visual Studio 2022 (or Build Tools) with the C++ workload and CMake. See [README.md](./README.md) for build requirements.
 
-4. **Make Changes**
-   - Make your changes.
+## Pull request expectations
 
-5. **Test Your Changes**
-   - Test your changes thoroughly to ensure they work as expected and do not break existing functionality.
+- Do not include generated `release/`, `dist/`, local recordings, certificates, private keys, or user data.
+- Do not re-enable third-party extension execution without a reviewed sandbox and IPC authorization model.
+- Preserve the AGPL-3.0 license and Recordly/OpenScreen attribution.
+- Explain any user-visible behavior, migration, or compatibility change in the pull request description.
 
-6. **Commit Your Changes**
-   - Commit your changes with a clear and concise commit message:
-     ```bash
-     git add .
-     git commit -m "Add a brief description of your changes"
-     ```
+## Reporting bugs and security issues
 
-7. **Push Your Changes**
-   - Push your branch to your forked repository:
-     ```bash
-     git push origin feature/your-feature-name
-     ```
-
-8. **Open a Pull Request**
-   - Go to the original repository and open a pull request from your branch. Provide a clear description of your changes and the problem they solve.
-
-## Reporting Issues
-
-If you encounter a bug or have a feature request, please open an issue in the [Issues](https://github.com/webadderallorg/Recordly/issues) section of this repository. Provide as much detail as possible to help us address the issue effectively.
-
-## Style Guide
-
-- Write clear, concise, and descriptive commit messages.
-- Include comments where necessary to explain complex code.
+Use GitHub Issues for normal bugs and feature requests. Do not post exploit details, credentials, certificates, or private recording data in a public issue. Follow [SECURITY.md](./SECURITY.md) for security reports.
 
 ## License
 
-By contributing to this project, you agree that your contributions will be licensed under the [MIT License](./LICENSE).
-
-Thank you for your contributions!
+By contributing, you agree that your contribution is licensed under the repository's [GNU AGPL-3.0 license](./LICENSE.md).

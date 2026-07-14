@@ -25,6 +25,7 @@ import {
 	killWindowsCaptureProcess,
 	registerIpcHandlers,
 } from "./ipc/handlers";
+import { restorePhoneCameraPreviewIfConnected } from "./ipc/register/phoneCamera";
 import { ensureMediaServer } from "./mediaServer";
 import { ensurePackagedRendererServer, getPackagedRendererBaseUrl } from "./rendererServer";
 import type { UpdateToastPayload } from "./updater";
@@ -210,6 +211,7 @@ function restoreWindowSafely(window: BrowserWindow | null) {
 
 	window.moveTop();
 	window.focus();
+	restorePhoneCameraPreviewIfConnected();
 }
 
 function getExistingEditorWindow(): BrowserWindow | null {
@@ -257,12 +259,14 @@ function showHudOverlayFromTray() {
 		hud.showInactive();
 		hud.moveTop();
 		reassertHudOverlayMouseState();
+		restorePhoneCameraPreviewIfConnected();
 		return true;
 	}
 
 	hud.show();
 	hud.moveTop();
 	hud.focus();
+	restorePhoneCameraPreviewIfConnected();
 	return true;
 }
 

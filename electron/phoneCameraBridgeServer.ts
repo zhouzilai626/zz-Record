@@ -192,12 +192,7 @@ function renderCertificateSetupPage(secureUrl: string, healthUrl: string): strin
 </head><body><main class="page"><div id="connecting"><h1>正在打开手机摄像头</h1><p>正在验证本机安全连接...</p></div><section class="card setup-card"><h1>信任本机证书</h1><p>手机浏览器只允许在 HTTPS 页面使用摄像头。此证书仅用于当前电脑的局域网摄像头连接，视频不会上传到互联网。</p><strong>首次使用</strong><ol><li>下载并安装证书。</li><li>iPhone: 在“设置 - 已下载描述文件”安装后，到“通用 - 关于本机 - 证书信任设置”启用完全信任。</li><li>Android: 下载后按系统提示安装为 CA 证书。</li><li>返回这里，打开安全摄像头页并允许摄像头权限。</li></ol><a href="/phone-camera-ca.cer">下载本机证书</a><a class="secondary" href=${JSON.stringify(secureUrl)}>我已安装证书，打开安全摄像头页</a></section><p class="note setup-card">证书只需在这台手机上安装一次。更换电脑或清除 ZZ Record 数据后需要重新安装。</p></main><script>const secureUrl=${JSON.stringify(secureUrl)};const healthUrl=${JSON.stringify(healthUrl)};let settled=false;const showSetup=()=>{if(settled)return;settled=true;document.body.classList.add('needs-setup')};const timeout=window.setTimeout(showSetup,1500);fetch(healthUrl,{cache:'no-store',mode:'cors'}).then((response)=>{if(!response.ok)throw new Error('HTTPS health check failed');settled=true;window.clearTimeout(timeout);window.location.replace(secureUrl)}).catch(()=>{window.clearTimeout(timeout);showSetup()});</script></body></html>`;
 }
 
-function renderBridgePage(params: {
-	sessionId: string;
-	pairingCode: string;
-	status: "ready" | "connected" | "invalid";
-	message: string;
-}) {
+function renderBridgePage(params: { sessionId: string; pairingCode: string }) {
 	const { sessionId, pairingCode } = params;
 	return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -396,6 +391,7 @@ async function connectAndStartFrameUpload() {
   } catch (error) {
     if (error && error.permanent) {
       shouldReconnect = false;
+      disconnect();
       setStatus('需要重新配对', 'error');
       showError(error.message);
     } else {
@@ -467,6 +463,14 @@ startCamera(facingMode).then(() => { void connectAndStartFrameUpload(); }).catch
 window.addEventListener('beforeunload', () => { disconnect(); });
 </script>
 </body>
+</html>`;
+}
+
+function renderInvalidBridgePage(): string {
+	return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" /><title>ZZ Record 手机摄像头</title></head>
+<body><main><h1>配对链接已失效</h1><p>请在电脑端重新选择手机摄像头并扫码连接。</p></main></body>
 </html>`;
 }
 
@@ -547,14 +551,9 @@ export async function handlePhoneCameraBridgeRequest(
 					state.sessionId === sessionId &&
 					state.pairingCode === pairingCode,
 			);
-			const html = renderBridgePage({
-				sessionId,
-				pairingCode,
-				status: valid ? "ready" : "invalid",
-				message: valid
-					? "这台手机已加入 ZZ Record 配对流程。点击下方按钮通知桌面端。"
-					: "此配对链接已失效，或与当前桌面端会话不匹配。",
-			});
+			const html = valid
+				? renderBridgePage({ sessionId, pairingCode })
+				: renderInvalidBridgePage();
 			response.writeHead(valid ? 200 : 410, { "Content-Type": "text/html; charset=utf-8" });
 			response.end(html);
 			return;

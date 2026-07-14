@@ -236,8 +236,6 @@ describe("buildInteractionZoomSuggestions (click-cluster logic)", () => {
 
 		expect(result.status).toBe("ok");
 		expect(result.suggestions).toHaveLength(MAX_INTERACTION_ZOOM_SUGGESTIONS);
-		expect(
-			result.suggestions.some((suggestion) => suggestion.start >= 24_500),
-		).toBe(false);
+		expect(result.suggestions.some((suggestion) => suggestion.start >= 24_500)).toBe(false);
 	});
 });

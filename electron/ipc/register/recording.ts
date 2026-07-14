@@ -40,7 +40,7 @@ import {
 	getSystemCursorHelperSourcePath,
 	getWindowsCaptureExePath,
 } from "../paths/binaries";
-import { rememberApprovedLocalReadPath } from "../project/manager";
+import { rememberApprovedLocalReadPath, resolveApprovedLocalMediaPath } from "../project/manager";
 import {
 	getBrowserMicSidecarFilters,
 	shouldKeepRecordingAudioSidecars,
@@ -69,6 +69,7 @@ import {
 	waitForNativeCaptureStart,
 	waitForNativeCaptureStop,
 } from "../recording/mac";
+import { isRecordingVideoPath, resolveRecordingOutputPath } from "../recording/outputPaths";
 import {
 	attachWindowsCaptureLifecycle,
 	isNativeWindowsCaptureAvailable,
@@ -1625,7 +1626,21 @@ export function registerRecordingHandlers(
 				pauseIntervals?: unknown;
 			},
 		) => {
-			const baseName = videoPath.replace(/\.[^.]+$/, "");
+			const recordingsDir = await getRecordingsDir();
+			const normalizedVideoPath = normalizeVideoSourcePath(videoPath);
+			if (!normalizedVideoPath || !isRecordingVideoPath(normalizedVideoPath, recordingsDir)) {
+				return { success: false, error: "Video path is outside the recordings directory." };
+			}
+
+			const approvedVideoPath = await resolveApprovedLocalMediaPath(normalizedVideoPath);
+			if (!approvedVideoPath || !isRecordingVideoPath(approvedVideoPath, recordingsDir)) {
+				return {
+					success: false,
+					error: "Video path is not an approved recording media file.",
+				};
+			}
+
+			const baseName = approvedVideoPath.replace(/\.[^.]+$/, "");
 			const sidecarPath = `${baseName}.mic.wav`;
 			const sourceWebmPath = `${baseName}.mic.source.webm`;
 			const tempWebmPath = `${sourceWebmPath}.tmp`;
@@ -1730,10 +1745,10 @@ export function registerRecordingHandlers(
 						);
 					}
 				}
-				await writeRecordingDiagnosticsSnapshot(videoPath, {
+				await writeRecordingDiagnosticsSnapshot(approvedVideoPath, {
 					backend: "browser-store",
 					phase: "mic-sidecar",
-					outputPath: videoPath,
+					outputPath: approvedVideoPath,
 					microphonePath: sidecarPath,
 					details: {
 						sourceBytes: audioData.byteLength,
@@ -1761,7 +1776,10 @@ export function registerRecordingHandlers(
 	ipcMain.handle("store-recorded-video", async (_, videoData: ArrayBuffer, fileName: string) => {
 		try {
 			const recordingsDir = await getRecordingsDir();
-			const videoPath = path.join(recordingsDir, fileName);
+			const videoPath = resolveRecordingOutputPath(recordingsDir, fileName);
+			if (!videoPath) {
+				return { success: false, message: "Invalid recording file name" };
+			}
 			await fs.writeFile(videoPath, Buffer.from(videoData));
 			return await finalizeStoredVideo(videoPath);
 		} catch (error) {

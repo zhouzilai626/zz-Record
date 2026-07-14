@@ -9,6 +9,9 @@ import { parseJsonWithByteOrderMark } from "../utils";
 
 const execFileAsync = promisify(execFile);
 export const MIN_VALID_RECORDED_VIDEO_BYTES = 1024;
+// A PCM WAV file with no captured frames is exactly its 44-byte header. Treat it
+// as absent so an empty system sidecar cannot mask usable microphone audio.
+export const MIN_VALID_WAV_AUDIO_BYTES = 45;
 export const RECORDING_AUDIO_MUX_MIN_TIMEOUT_MS = 5 * 60 * 1000;
 export const RECORDING_AUDIO_MUX_MAX_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
@@ -201,9 +204,7 @@ export async function probeMediaDurationSeconds(filePath: string): Promise<numbe
 			return duration;
 		}
 	} finally {
-		console.log(
-			`[PERF:MAIN] probeMediaDurationSeconds: COMPLETED in ${Date.now() - start}ms`,
-		);
+		console.log(`[PERF:MAIN] probeMediaDurationSeconds: COMPLETED in ${Date.now() - start}ms`);
 	}
 	return 0;
 }
@@ -292,9 +293,7 @@ export async function probeVideoStreamDuration(
 	} catch {
 		return null;
 	} finally {
-		console.log(
-			`[PERF:MAIN] probeVideoStreamDuration: COMPLETED in ${Date.now() - start}ms`,
-		);
+		console.log(`[PERF:MAIN] probeVideoStreamDuration: COMPLETED in ${Date.now() - start}ms`);
 	}
 }
 
@@ -430,7 +429,10 @@ export async function getUsableCompanionAudioCandidates(
 		for (const companionPath of [systemPath, micPath]) {
 			try {
 				const stat = await fs.stat(companionPath);
-				if (stat.size > 0) {
+				const isEmptyWav =
+					companionPath.toLowerCase().endsWith(".wav") &&
+					stat.size < MIN_VALID_WAV_AUDIO_BYTES;
+				if (stat.size > 0 && !isEmptyWav) {
 					usablePaths.push(companionPath);
 				}
 			} catch {

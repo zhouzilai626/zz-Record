@@ -5569,10 +5569,7 @@ export default function VideoEditor() {
 					<DialogHeader>
 						<DialogTitle>{t("editor.project.saveTitle", "Save Project")}</DialogTitle>
 						<DialogDescription className="text-muted-foreground">
-							{t(
-								"editor.project.saveDescription",
-								"为项目命名后保存。",
-							)}
+							{t("editor.project.saveDescription", "为项目命名后保存。")}
 						</DialogDescription>
 					</DialogHeader>
 					<div className="py-4">
@@ -6228,10 +6225,10 @@ export default function VideoEditor() {
 												}}
 												transition={{ duration: 0.14 }}
 											>
-										<section.icon
-											className="h-[27px] w-[27px]"
-											weight={isActive ? "fill" : "regular"}
-										/>
+												<section.icon
+													className="h-[27px] w-[27px]"
+													weight={isActive ? "fill" : "regular"}
+												/>
 											</motion.span>
 										</motion.button>
 										<div className="ml-1.5 h-1.5 w-1.5 flex-shrink-0">
@@ -6269,219 +6266,208 @@ export default function VideoEditor() {
 						</div>
 						{/* Panel */}
 						<SettingsPanel
-								panelMode="editor"
-								activeEffectSection={activeEffectSection}
-								selected={wallpaper}
-								onWallpaperChange={setWallpaper}
-								selectedZoomDepth={
-									selectedZoomId
-										? zoomRegions.find((z) => z.id === selectedZoomId)?.depth
-										: null
-								}
-								onZoomDepthChange={(depth) =>
-									selectedZoomId && handleZoomDepthChange(depth)
-								}
-								selectedZoomId={selectedZoomId}
-								selectedZoomMode={
-									selectedZoomId
-										? (zoomRegions.find((z) => z.id === selectedZoomId)?.mode ??
-											"auto")
-										: null
-								}
-								onZoomModeChange={(mode) =>
-									selectedZoomId && handleZoomModeChange(mode)
-								}
-								onZoomDelete={handleZoomDelete}
-								selectedClipId={selectedClipId}
-								selectedClipSpeed={
-									selectedClipId
-										? (clipRegions.find((c) => c.id === selectedClipId)
-												?.speed ?? 1)
-										: null
-								}
-								selectedClipMuted={
-									selectedClipId
-										? (clipRegions.find((c) => c.id === selectedClipId)
-												?.muted ?? false)
-										: null
-								}
-								selectedClipShowSourceAudio={
-									selectedClipId
-										? (clipRegions.find((c) => c.id === selectedClipId)
-												?.showSourceAudio ?? false)
-										: null
-								}
-								onClipSpeedChange={handleClipSpeedChange}
-								onClipMutedChange={handleClipMutedChange}
-								onClipShowSourceAudioChange={handleClipShowSourceAudioChange}
-								onClipDelete={handleClipDelete}
-								hasClipSourceAudio={hasClipSourceAudio}
-								sourceAudioTrackMeta={audio.sourceAudioTrackMeta}
-								sourceAudioTrackSettings={
-									audio.selectedClipSourceAudioTrackSettings
-								}
-								onSourceAudioTrackVolumeChange={
-									audio.onSelectedClipSourceAudioTrackVolumeChange
-								}
-								onSourceAudioTrackNormalizeChange={
-									audio.onSelectedClipSourceAudioTrackNormalizeChange
-								}
-								selectedAudioId={selectedAudioId}
-								selectedAudioVolume={
-									selectedAudioId
-										? (audioRegions.find((r) => r.id === selectedAudioId)
-												?.volume ?? null)
-										: null
-								}
-								selectedAudioNormalize={
-									selectedAudioId
-										? (audioRegions.find((r) => r.id === selectedAudioId)
-												?.normalize ?? false)
-										: null
-								}
-								onAudioVolumeChange={handleAudioVolumeChange}
-								onAudioNormalizeChange={handleAudioNormalizeChange}
-								onAudioDelete={handleAudioDelete}
-								shadowIntensity={shadowIntensity}
-								onShadowChange={setShadowIntensity}
-								backgroundBlur={backgroundBlur}
-								onBackgroundBlurChange={setBackgroundBlur}
-								zoomMotionBlurTuning={zoomMotionBlurTuning}
-								onZoomMotionBlurTuningChange={setZoomMotionBlurTuning}
-								zoomTemporalMotionBlur={zoomTemporalMotionBlur}
-								onZoomTemporalMotionBlurChange={setZoomTemporalMotionBlur}
-								zoomMotionBlurSampleCount={zoomMotionBlurSampleCount}
-								onZoomMotionBlurSampleCountChange={setZoomMotionBlurSampleCount}
-								zoomMotionBlurShutterFraction={zoomMotionBlurShutterFraction}
-								onZoomMotionBlurShutterFractionChange={
-									setZoomMotionBlurShutterFraction
-								}
-								autoApplyFreshRecordingAutoZooms={autoApplyFreshRecordingAutoZooms}
-								onAutoApplyFreshRecordingAutoZoomsChange={
-									setAutoApplyFreshRecordingAutoZooms
-								}
-								connectZooms={connectZooms}
-								onConnectZoomsChange={setConnectZooms}
-								zoomInDurationMs={zoomInDurationMs}
-								onZoomInDurationMsChange={setZoomInDurationMs}
-								zoomInOverlapMs={zoomInOverlapMs}
-								onZoomInOverlapMsChange={setZoomInOverlapMs}
-								zoomOutDurationMs={zoomOutDurationMs}
-								onZoomOutDurationMsChange={setZoomOutDurationMs}
-								connectedZoomGapMs={connectedZoomGapMs}
-								onConnectedZoomGapMsChange={setConnectedZoomGapMs}
-								connectedZoomDurationMs={connectedZoomDurationMs}
-								onConnectedZoomDurationMsChange={setConnectedZoomDurationMs}
-								zoomInEasing={zoomInEasing}
-								onZoomInEasingChange={setZoomInEasing}
-								zoomOutEasing={zoomOutEasing}
-								onZoomOutEasingChange={setZoomOutEasing}
-								connectedZoomEasing={connectedZoomEasing}
-								onConnectedZoomEasingChange={setConnectedZoomEasing}
-								showCursor={effectiveShowCursor}
-								onShowCursorChange={handleShowCursorChange}
-								loopCursor={loopCursor}
-								onLoopCursorChange={setLoopCursor}
-								cursorStyle={cursorStyle}
-								onCursorStyleChange={setCursorStyle}
-								cursorSize={cursorSize}
-								onCursorSizeChange={setCursorSize}
-								cursorSmoothing={cursorSmoothing}
-								onCursorSmoothingChange={setCursorSmoothing}
-								cursorSpringStiffnessMultiplier={cursorSpringStiffnessMultiplier}
-								onCursorSpringStiffnessMultiplierChange={
-									setCursorSpringStiffnessMultiplier
-								}
-								cursorSpringDampingMultiplier={cursorSpringDampingMultiplier}
-								onCursorSpringDampingMultiplierChange={
-									setCursorSpringDampingMultiplier
-								}
-								cursorSpringMassMultiplier={cursorSpringMassMultiplier}
-								onCursorSpringMassMultiplierChange={setCursorSpringMassMultiplier}
-								cameraSpringStiffnessMultiplier={cameraSpringStiffnessMultiplier}
-								onCameraSpringStiffnessMultiplierChange={
-									setCameraSpringStiffnessMultiplier
-								}
-								cameraSpringDampingMultiplier={cameraSpringDampingMultiplier}
-								onCameraSpringDampingMultiplierChange={
-									setCameraSpringDampingMultiplier
-								}
-								cameraSpringMassMultiplier={cameraSpringMassMultiplier}
-								onCameraSpringMassMultiplierChange={setCameraSpringMassMultiplier}
-								zoomClassicMode={zoomClassicMode}
-								onZoomClassicModeChange={setZoomClassicMode}
-								cursorMotionBlur={cursorMotionBlur}
-								onCursorMotionBlurChange={setCursorMotionBlur}
-								cursorClickEffect={cursorClickEffect}
-								cursorClickEffectColor={cursorClickEffectColor}
-								onCursorClickEffectChange={setCursorClickEffect}
-								onCursorClickEffectColorChange={setCursorClickEffectColor}
-								cursorClickEffectScale={cursorClickEffectScale}
-								onCursorClickEffectScaleChange={setCursorClickEffectScale}
-								cursorClickEffectOpacity={cursorClickEffectOpacity}
-								onCursorClickEffectOpacityChange={setCursorClickEffectOpacity}
-								cursorClickEffectDurationMs={cursorClickEffectDurationMs}
-								onCursorClickEffectDurationMsChange={setCursorClickEffectDurationMs}
-								cursorClickBounce={cursorClickBounce}
-								onCursorClickBounceChange={setCursorClickBounce}
-								cursorClickBounceDuration={cursorClickBounceDuration}
-								onCursorClickBounceDurationChange={setCursorClickBounceDuration}
-								cursorSway={cursorSway}
-								onCursorSwayChange={setCursorSway}
-								borderRadius={borderRadius}
-								onBorderRadiusChange={setBorderRadius}
-								webcam={webcam}
-								webcamPreviewSrc={webcam.sourcePath ? resolvedWebcamVideoUrl : null}
-								webcamPreviewCurrentTime={currentTime}
-								webcamPreviewPlaying={isPlaying}
-								onWebcamChange={setWebcam}
-								onUploadWebcam={handleUploadWebcam}
-								onClearWebcam={handleClearWebcam}
-								padding={padding}
-								onPaddingChange={setPadding}
-								frame={frame}
-								onFrameChange={setFrame}
-								cropRegion={cropRegion}
-								onCropChange={setCropRegion}
-								aspectRatio={aspectRatio}
-								onAspectRatioChange={setAspectRatio}
-								selectedAnnotationId={selectedAnnotationId}
-								annotationRegions={annotationRegions}
-								autoCaptions={autoCaptions}
-								autoCaptionSettings={autoCaptionSettings}
-								whisperExecutablePath={whisperExecutablePath}
-								whisperModelPath={whisperModelPath}
-								whisperModelDownloadStatus={whisperModelDownloadStatus}
-								whisperModelDownloadProgress={whisperModelDownloadProgress}
-								isGeneratingCaptions={isGeneratingCaptions}
-								onAutoCaptionSettingsChange={setAutoCaptionSettings}
-								onPickWhisperExecutable={handlePickWhisperExecutable}
-								onPickWhisperModel={handlePickWhisperModel}
-								onGenerateAutoCaptions={handleGenerateAutoCaptions}
-								onClearAutoCaptions={handleClearAutoCaptions}
-								captionCurrentTimeMs={Math.round(currentTime * 1000)}
-								selectedCaptionId={selectedCaptionId}
-								onBeginCaptionEdit={handleBeginCaptionEdit}
-								onCaptionTextEdit={handleCaptionTextEdit}
-								onCaptionRetime={handleCaptionRetime}
-								onCaptionSplit={handleCaptionSplit}
-								onCaptionMerge={handleCaptionMerge}
-								onCaptionDelete={handleCaptionDelete}
-								onDownloadWhisperSmallModel={handleDownloadWhisperSmallModel}
-								onDeleteWhisperSmallModel={handleDeleteWhisperSmallModel}
-								nativeCaptureUnavailableSession={sessionNativeCaptureUnavailable}
-								onOpenNativeCaptureUnavailableModal={() =>
-									setNativeCaptureUnavailableModalOpen(true)
-								}
-								onAnnotationContentChange={handleAnnotationContentChange}
-								onAnnotationTypeChange={handleAnnotationTypeChange}
-								onAnnotationStyleChange={handleAnnotationStyleChange}
-								onAnnotationFigureDataChange={handleAnnotationFigureDataChange}
-								onAnnotationBlurIntensityChange={
-									handleAnnotationBlurIntensityChange
-								}
-								onAnnotationBlurColorChange={handleAnnotationBlurColorChange}
-								onAnnotationDelete={handleAnnotationDelete}
+							panelMode="editor"
+							activeEffectSection={activeEffectSection}
+							selected={wallpaper}
+							onWallpaperChange={setWallpaper}
+							selectedZoomDepth={
+								selectedZoomId
+									? zoomRegions.find((z) => z.id === selectedZoomId)?.depth
+									: null
+							}
+							onZoomDepthChange={(depth) =>
+								selectedZoomId && handleZoomDepthChange(depth)
+							}
+							selectedZoomId={selectedZoomId}
+							selectedZoomMode={
+								selectedZoomId
+									? (zoomRegions.find((z) => z.id === selectedZoomId)?.mode ??
+										"auto")
+									: null
+							}
+							onZoomModeChange={(mode) =>
+								selectedZoomId && handleZoomModeChange(mode)
+							}
+							onZoomDelete={handleZoomDelete}
+							selectedClipId={selectedClipId}
+							selectedClipSpeed={
+								selectedClipId
+									? (clipRegions.find((c) => c.id === selectedClipId)?.speed ?? 1)
+									: null
+							}
+							selectedClipMuted={
+								selectedClipId
+									? (clipRegions.find((c) => c.id === selectedClipId)?.muted ??
+										false)
+									: null
+							}
+							selectedClipShowSourceAudio={
+								selectedClipId
+									? (clipRegions.find((c) => c.id === selectedClipId)
+											?.showSourceAudio ?? false)
+									: null
+							}
+							onClipSpeedChange={handleClipSpeedChange}
+							onClipMutedChange={handleClipMutedChange}
+							onClipShowSourceAudioChange={handleClipShowSourceAudioChange}
+							onClipDelete={handleClipDelete}
+							hasClipSourceAudio={hasClipSourceAudio}
+							sourceAudioTrackMeta={audio.sourceAudioTrackMeta}
+							sourceAudioTrackSettings={audio.selectedClipSourceAudioTrackSettings}
+							onSourceAudioTrackVolumeChange={
+								audio.onSelectedClipSourceAudioTrackVolumeChange
+							}
+							onSourceAudioTrackNormalizeChange={
+								audio.onSelectedClipSourceAudioTrackNormalizeChange
+							}
+							selectedAudioId={selectedAudioId}
+							selectedAudioVolume={
+								selectedAudioId
+									? (audioRegions.find((r) => r.id === selectedAudioId)?.volume ??
+										null)
+									: null
+							}
+							selectedAudioNormalize={
+								selectedAudioId
+									? (audioRegions.find((r) => r.id === selectedAudioId)
+											?.normalize ?? false)
+									: null
+							}
+							onAudioVolumeChange={handleAudioVolumeChange}
+							onAudioNormalizeChange={handleAudioNormalizeChange}
+							onAudioDelete={handleAudioDelete}
+							shadowIntensity={shadowIntensity}
+							onShadowChange={setShadowIntensity}
+							backgroundBlur={backgroundBlur}
+							onBackgroundBlurChange={setBackgroundBlur}
+							zoomMotionBlurTuning={zoomMotionBlurTuning}
+							onZoomMotionBlurTuningChange={setZoomMotionBlurTuning}
+							zoomTemporalMotionBlur={zoomTemporalMotionBlur}
+							onZoomTemporalMotionBlurChange={setZoomTemporalMotionBlur}
+							zoomMotionBlurSampleCount={zoomMotionBlurSampleCount}
+							onZoomMotionBlurSampleCountChange={setZoomMotionBlurSampleCount}
+							zoomMotionBlurShutterFraction={zoomMotionBlurShutterFraction}
+							onZoomMotionBlurShutterFractionChange={setZoomMotionBlurShutterFraction}
+							autoApplyFreshRecordingAutoZooms={autoApplyFreshRecordingAutoZooms}
+							onAutoApplyFreshRecordingAutoZoomsChange={
+								setAutoApplyFreshRecordingAutoZooms
+							}
+							connectZooms={connectZooms}
+							onConnectZoomsChange={setConnectZooms}
+							zoomInDurationMs={zoomInDurationMs}
+							onZoomInDurationMsChange={setZoomInDurationMs}
+							zoomInOverlapMs={zoomInOverlapMs}
+							onZoomInOverlapMsChange={setZoomInOverlapMs}
+							zoomOutDurationMs={zoomOutDurationMs}
+							onZoomOutDurationMsChange={setZoomOutDurationMs}
+							connectedZoomGapMs={connectedZoomGapMs}
+							onConnectedZoomGapMsChange={setConnectedZoomGapMs}
+							connectedZoomDurationMs={connectedZoomDurationMs}
+							onConnectedZoomDurationMsChange={setConnectedZoomDurationMs}
+							zoomInEasing={zoomInEasing}
+							onZoomInEasingChange={setZoomInEasing}
+							zoomOutEasing={zoomOutEasing}
+							onZoomOutEasingChange={setZoomOutEasing}
+							connectedZoomEasing={connectedZoomEasing}
+							onConnectedZoomEasingChange={setConnectedZoomEasing}
+							showCursor={effectiveShowCursor}
+							onShowCursorChange={handleShowCursorChange}
+							loopCursor={loopCursor}
+							onLoopCursorChange={setLoopCursor}
+							cursorStyle={cursorStyle}
+							onCursorStyleChange={setCursorStyle}
+							cursorSize={cursorSize}
+							onCursorSizeChange={setCursorSize}
+							cursorSmoothing={cursorSmoothing}
+							onCursorSmoothingChange={setCursorSmoothing}
+							cursorSpringStiffnessMultiplier={cursorSpringStiffnessMultiplier}
+							onCursorSpringStiffnessMultiplierChange={
+								setCursorSpringStiffnessMultiplier
+							}
+							cursorSpringDampingMultiplier={cursorSpringDampingMultiplier}
+							onCursorSpringDampingMultiplierChange={setCursorSpringDampingMultiplier}
+							cursorSpringMassMultiplier={cursorSpringMassMultiplier}
+							onCursorSpringMassMultiplierChange={setCursorSpringMassMultiplier}
+							cameraSpringStiffnessMultiplier={cameraSpringStiffnessMultiplier}
+							onCameraSpringStiffnessMultiplierChange={
+								setCameraSpringStiffnessMultiplier
+							}
+							cameraSpringDampingMultiplier={cameraSpringDampingMultiplier}
+							onCameraSpringDampingMultiplierChange={setCameraSpringDampingMultiplier}
+							cameraSpringMassMultiplier={cameraSpringMassMultiplier}
+							onCameraSpringMassMultiplierChange={setCameraSpringMassMultiplier}
+							zoomClassicMode={zoomClassicMode}
+							onZoomClassicModeChange={setZoomClassicMode}
+							cursorMotionBlur={cursorMotionBlur}
+							onCursorMotionBlurChange={setCursorMotionBlur}
+							cursorClickEffect={cursorClickEffect}
+							cursorClickEffectColor={cursorClickEffectColor}
+							onCursorClickEffectChange={setCursorClickEffect}
+							onCursorClickEffectColorChange={setCursorClickEffectColor}
+							cursorClickEffectScale={cursorClickEffectScale}
+							onCursorClickEffectScaleChange={setCursorClickEffectScale}
+							cursorClickEffectOpacity={cursorClickEffectOpacity}
+							onCursorClickEffectOpacityChange={setCursorClickEffectOpacity}
+							cursorClickEffectDurationMs={cursorClickEffectDurationMs}
+							onCursorClickEffectDurationMsChange={setCursorClickEffectDurationMs}
+							cursorClickBounce={cursorClickBounce}
+							onCursorClickBounceChange={setCursorClickBounce}
+							cursorClickBounceDuration={cursorClickBounceDuration}
+							onCursorClickBounceDurationChange={setCursorClickBounceDuration}
+							cursorSway={cursorSway}
+							onCursorSwayChange={setCursorSway}
+							borderRadius={borderRadius}
+							onBorderRadiusChange={setBorderRadius}
+							webcam={webcam}
+							webcamPreviewSrc={webcam.sourcePath ? resolvedWebcamVideoUrl : null}
+							webcamPreviewCurrentTime={currentTime}
+							webcamPreviewPlaying={isPlaying}
+							onWebcamChange={setWebcam}
+							onUploadWebcam={handleUploadWebcam}
+							onClearWebcam={handleClearWebcam}
+							padding={padding}
+							onPaddingChange={setPadding}
+							frame={frame}
+							onFrameChange={setFrame}
+							cropRegion={cropRegion}
+							onCropChange={setCropRegion}
+							aspectRatio={aspectRatio}
+							onAspectRatioChange={setAspectRatio}
+							selectedAnnotationId={selectedAnnotationId}
+							annotationRegions={annotationRegions}
+							autoCaptions={autoCaptions}
+							autoCaptionSettings={autoCaptionSettings}
+							whisperExecutablePath={whisperExecutablePath}
+							whisperModelPath={whisperModelPath}
+							whisperModelDownloadStatus={whisperModelDownloadStatus}
+							whisperModelDownloadProgress={whisperModelDownloadProgress}
+							isGeneratingCaptions={isGeneratingCaptions}
+							onAutoCaptionSettingsChange={setAutoCaptionSettings}
+							onPickWhisperExecutable={handlePickWhisperExecutable}
+							onPickWhisperModel={handlePickWhisperModel}
+							onGenerateAutoCaptions={handleGenerateAutoCaptions}
+							onClearAutoCaptions={handleClearAutoCaptions}
+							captionCurrentTimeMs={Math.round(currentTime * 1000)}
+							selectedCaptionId={selectedCaptionId}
+							onBeginCaptionEdit={handleBeginCaptionEdit}
+							onCaptionTextEdit={handleCaptionTextEdit}
+							onCaptionRetime={handleCaptionRetime}
+							onCaptionSplit={handleCaptionSplit}
+							onCaptionMerge={handleCaptionMerge}
+							onCaptionDelete={handleCaptionDelete}
+							onDownloadWhisperSmallModel={handleDownloadWhisperSmallModel}
+							onDeleteWhisperSmallModel={handleDeleteWhisperSmallModel}
+							nativeCaptureUnavailableSession={sessionNativeCaptureUnavailable}
+							onOpenNativeCaptureUnavailableModal={() =>
+								setNativeCaptureUnavailableModalOpen(true)
+							}
+							onAnnotationContentChange={handleAnnotationContentChange}
+							onAnnotationTypeChange={handleAnnotationTypeChange}
+							onAnnotationStyleChange={handleAnnotationStyleChange}
+							onAnnotationFigureDataChange={handleAnnotationFigureDataChange}
+							onAnnotationBlurIntensityChange={handleAnnotationBlurIntensityChange}
+							onAnnotationBlurColorChange={handleAnnotationBlurColorChange}
+							onAnnotationDelete={handleAnnotationDelete}
 						/>
 					</div>
 					{/* Right column: preview + timeline */}

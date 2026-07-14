@@ -1,49 +1,39 @@
-name: Feature Request
-description: Suggest an idea for this project
-title: "[Feature]: "
-labels: ["enhancement", "feature-request"]
+name: 功能建议
+description: 提出能改善录制、编辑或导出工作流的具体需求
+title: "[建议] "
+labels: ["enhancement", "triage"]
 body:
   - type: checkboxes
     attributes:
-      label: Search existing issues
-      description: Please search to see if an issue already exists for this feature request.
+      label: 提交前检查
       options:
-        - label: I have searched the existing issues
+        - label: 我已搜索现有 Issue，未找到相同建议。
           required: true
 
   - type: textarea
-    id: problem-description
+    id: scenario
     attributes:
-      label: Is your feature request related to a problem?
-      description: A clear and concise description of what the problem is.
-      placeholder: e.g., I'm always frustrated when I have to...
+      label: 使用场景与当前问题
+      description: 先说明你想完成什么，以及现有流程卡在哪里。
+      placeholder: 例如，我录制产品教程时，需要在多段视频之间快速复用同一套摄像头样式。
     validations:
       required: true
 
   - type: textarea
-    id: solution-description
+    id: proposal
     attributes:
-      label: Describe the solution you'd like
-      description: A clear and concise description of what you want to happen.
-      placeholder: Describe the feature or change you're proposing
+      label: 希望如何改进
+      description: 描述预期行为，不需要提供技术方案。
     validations:
-      required: false
+      required: true
 
   - type: textarea
     id: alternatives
     attributes:
-      label: Describe alternatives you've considered
-      description: A clear and concise description of any alternative solutions or features you've considered.
-      placeholder: Have you considered any workarounds or alternative approaches?
-    validations:
-      required: false
+      label: 已尝试的方法或替代方案
 
   - type: textarea
-    id: additional-context
+    id: context
     attributes:
-      label: Additional context
-      description: Add any other context or screenshots about the feature request here.
-      placeholder: Links, mockups, or any additional information
-    validations:
-      required: false
+      label: 截图、示例或补充信息
 

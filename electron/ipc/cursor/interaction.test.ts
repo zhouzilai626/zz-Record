@@ -22,7 +22,9 @@ describe("repairBundledUiohookBinaryForCurrentArch", () => {
 
 	afterEach(async () => {
 		await Promise.all(
-			tempRoots.splice(0).map((tempRoot) => fs.rm(tempRoot, { recursive: true, force: true })),
+			tempRoots
+				.splice(0)
+				.map((tempRoot) => fs.rm(tempRoot, { recursive: true, force: true })),
 		);
 	});
 
@@ -40,9 +42,14 @@ describe("repairBundledUiohookBinaryForCurrentArch", () => {
 
 		const log = vi.fn();
 		const repaired = repairBundledUiohookBinaryForCurrentArch(
-			Object.assign(new Error("mach-o file, but is an incompatible architecture (have 'x86_64', need 'arm64')"), {
-				code: "ERR_DLOPEN_FAILED",
-			}),
+			Object.assign(
+				new Error(
+					"mach-o file, but is an incompatible architecture (have 'x86_64', need 'arm64')",
+				),
+				{
+					code: "ERR_DLOPEN_FAILED",
+				},
+			),
 			{ packageRoot, platform: "darwin", arch: "arm64", log },
 		);
 
@@ -83,12 +90,8 @@ describe("shouldSampleWindowsMouseMove", () => {
 		expect(shouldSampleWindowsMouseMove(49, 0)).toBe(false);
 		expect(shouldSampleWindowsMouseMove(50, 0)).toBe(true);
 		expect(shouldSampleWindowsMouseMove(75, 50)).toBe(false);
-		expect(
-			shouldSampleWindowsMouseMove(
-				100,
-				50,
-				WINDOWS_MOUSEMOVE_SAMPLE_INTERVAL_MS,
-			),
-		).toBe(true);
+		expect(shouldSampleWindowsMouseMove(100, 50, WINDOWS_MOUSEMOVE_SAMPLE_INTERVAL_MS)).toBe(
+			true,
+		);
 	});
 });

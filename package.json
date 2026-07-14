@@ -1,8 +1,8 @@
 {
-	"name": "recordly",
+	"name": "zz-record",
 	"productName": "ZZ Record",
-	"description": "A customized Recordly-based screen recorder with local phone camera workflow, Windows packaging fixes, and polished demo editing tools.",
-	"author": "webadderall",
+	"description": "A Windows screen recorder and editor with local phone camera support.",
+	"author": "zhouzilai626",
 	"homepage": "https://github.com/zhouzilai626/zz-Record",
 	"repository": {
 		"type": "git",

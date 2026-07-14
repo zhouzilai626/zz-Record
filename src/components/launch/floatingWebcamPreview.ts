@@ -1,6 +1,4 @@
-export function canShowFloatingWebcamPreview(
-	requested: boolean,
-): boolean {
+export function canShowFloatingWebcamPreview(requested: boolean): boolean {
 	return requested;
 }
 

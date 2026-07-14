@@ -1,21 +1,26 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import type { HookMouseEvent, UiohookLike, UiohookModuleNamespace, CursorInteractionType } from "../types";
 import {
-	isCursorCaptureActive,
-	interactionCaptureCleanup,
-	setInteractionCaptureCleanup,
 	hasLoggedInteractionHookFailure,
-	setHasLoggedInteractionHookFailure,
+	interactionCaptureCleanup,
+	isCursorCaptureActive,
 	lastLeftClick,
+	setHasLoggedInteractionHookFailure,
+	setInteractionCaptureCleanup,
 	setLastLeftClick,
 	setLinuxCursorScreenPoint,
 } from "../state";
+import type {
+	CursorInteractionType,
+	HookMouseEvent,
+	UiohookLike,
+	UiohookModuleNamespace,
+} from "../types";
 import {
-	getNormalizedCursorPoint,
 	getCursorCaptureElapsedMs,
 	getHookCursorScreenPoint,
+	getNormalizedCursorPoint,
 	isCursorCapturePaused,
 	pushCursorSample,
 } from "./telemetry";

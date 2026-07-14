@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { useEffect, useMemo, useState } from "react";
 import type { PhoneCameraState } from "@/lib/phoneCamera";
 
 function getStatusTone(state: PhoneCameraState | null): { label: string; color: string } {

@@ -91,11 +91,7 @@ export async function writeCursorTelemetry(videoPath: string, samples: unknown) 
 
 	await fs.writeFile(
 		telemetryPath,
-		JSON.stringify(
-			{ version: CURSOR_TELEMETRY_VERSION, samples: normalizedSamples },
-			null,
-			2,
-		),
+		JSON.stringify({ version: CURSOR_TELEMETRY_VERSION, samples: normalizedSamples }, null, 2),
 		"utf-8",
 	);
 
@@ -144,9 +140,7 @@ export function resumeCursorCapture(resumedAtMs: number) {
 	}
 
 	const pauseDurationMs = Math.max(0, resumedAtMs - cursorCapturePauseStartedAtMs);
-	setCursorCaptureAccumulatedPausedMs(
-		cursorCaptureAccumulatedPausedMs + pauseDurationMs,
-	);
+	setCursorCaptureAccumulatedPausedMs(cursorCaptureAccumulatedPausedMs + pauseDurationMs);
 	setCursorCapturePauseStartedAtMs(null);
 }
 
@@ -217,7 +211,16 @@ export function getNormalizedCursorPoint() {
 }
 
 export function getHookCursorScreenPoint(
-	event: { x?: number; y?: number; data?: { x?: number; y?: number; screenX?: number; screenY?: number }; screenX?: number; screenY?: number } | null | undefined,
+	event:
+		| {
+				x?: number;
+				y?: number;
+				data?: { x?: number; y?: number; screenX?: number; screenY?: number };
+				screenX?: number;
+				screenY?: number;
+		  }
+		| null
+		| undefined,
 ): { x: number; y: number } | null {
 	const rawX = event?.x ?? event?.data?.x ?? event?.screenX ?? event?.data?.screenX;
 	const rawY = event?.y ?? event?.data?.y ?? event?.screenY ?? event?.data?.screenY;

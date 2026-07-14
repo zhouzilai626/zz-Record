@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-	getScreenSourceIdForDisplay,
-	LINUX_PORTAL_SCREEN_SOURCE_ID,
-} from "./sourceMapping";
+import { getScreenSourceIdForDisplay, LINUX_PORTAL_SCREEN_SOURCE_ID } from "./sourceMapping";
 
 describe("getScreenSourceIdForDisplay", () => {
 	it("keeps the live Electron screen source when one is available", () => {

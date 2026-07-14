@@ -12,7 +12,10 @@ import {
 	configurePhoneCameraBridgeSession,
 	ensurePhoneCameraBridgeServer,
 } from "../../phoneCameraBridgeServer";
-import { createInactivePhoneCameraState } from "../../phoneCameraSessionState";
+import {
+	createInactivePhoneCameraState,
+	shouldShowPhoneCameraPairing,
+} from "../../phoneCameraSessionState";
 import {
 	closePhoneCameraPairingWindow,
 	destroyPhoneCameraOverlayWindow,
@@ -24,7 +27,6 @@ import {
 
 const PHONE_CAMERA_STATE_CHANGED_CHANNEL = "recordly-phone-camera:state-changed";
 const PHONE_CAMERA_SESSION_PATH = path.join(USER_DATA_PATH, "phone-camera-session.json");
-const PHONE_CAMERA_PAIRING_FALLBACK_DELAY_MS = 8_000;
 const PHONE_CAMERA_FRAME_TIMEOUT_MS = 5_000;
 
 type PersistedPhoneCameraSession = {
@@ -45,7 +47,6 @@ const phoneCameraState: PhoneCameraState = {
 	pairingUrl: undefined,
 };
 let latestPhoneCameraFrame: PhoneCameraFramePayload | null = null;
-let pairingFallbackTimer: NodeJS.Timeout | null = null;
 let frameLivenessTimer: NodeJS.Timeout | null = null;
 let phoneCameraPreviewEnabled = true;
 
@@ -86,13 +87,6 @@ function clearPersistedPhoneCameraSession(): void {
 	}
 }
 
-function clearPairingFallbackTimer(): void {
-	if (pairingFallbackTimer) {
-		clearTimeout(pairingFallbackTimer);
-		pairingFallbackTimer = null;
-	}
-}
-
 function clearFrameLivenessTimer(): void {
 	if (frameLivenessTimer) {
 		clearTimeout(frameLivenessTimer);
@@ -115,18 +109,7 @@ function scheduleFrameLivenessCheck(): void {
 			message: "Phone camera stopped sending frames. Waiting for it to reconnect.",
 			error: undefined,
 		});
-		showPairingFallbackWhenNeeded();
 	}, PHONE_CAMERA_FRAME_TIMEOUT_MS);
-}
-
-function showPairingFallbackWhenNeeded(): void {
-	clearPairingFallbackTimer();
-	pairingFallbackTimer = setTimeout(() => {
-		pairingFallbackTimer = null;
-		if (phoneCameraState.active && !phoneCameraState.connected) {
-			showPhoneCameraPairingWindow();
-		}
-	}, PHONE_CAMERA_PAIRING_FALLBACK_DELAY_MS);
 }
 
 function getPhoneCameraState(): PhoneCameraState {
@@ -163,7 +146,6 @@ configurePhoneCameraBridgeSession({
 		}
 
 		closePhoneCameraPairingWindow();
-		clearPairingFallbackTimer();
 		if (phoneCameraPreviewEnabled) {
 			showPhoneCameraOverlayWindow();
 		}
@@ -204,7 +186,6 @@ configurePhoneCameraBridgeSession({
 			height,
 			capturedAtMs: typeof capturedAtMs === "number" ? capturedAtMs : Date.now(),
 		};
-		clearPairingFallbackTimer();
 		scheduleFrameLivenessCheck();
 		const overlayWindow = getPhoneCameraOverlayWindow();
 		if (phoneCameraPreviewEnabled && overlayWindow) {
@@ -232,34 +213,12 @@ function buildPairingUrl(baseUrl: string, sessionId: string, pairingCode: string
 	return `${baseUrl}/phone-camera?session=${encodeURIComponent(sessionId)}&code=${encodeURIComponent(pairingCode)}`;
 }
 
-async function restorePersistedPhoneCameraSession(): Promise<void> {
-	const persistedSession = readPersistedPhoneCameraSession();
-	if (!persistedSession) {
-		return;
-	}
-
-	try {
-		const bridgeBaseUrl = await ensurePhoneCameraBridgeServer();
-		setPhoneCameraState({
-			active: true,
-			connected: false,
-			status: "pending",
-			startedAtMs: Date.now(),
-			lastFrameAtMs: null,
-			message: "Waiting for the previously paired phone to reconnect.",
-			error: undefined,
-			sessionId: persistedSession.sessionId,
-			pairingCode: persistedSession.pairingCode,
-			pairingUrl: buildPairingUrl(
-				bridgeBaseUrl,
-				persistedSession.sessionId,
-				persistedSession.pairingCode,
-			),
-		});
-	} catch (error) {
-		console.warn("[phone-camera] Failed to restore the saved phone session:", error);
+export function restorePhoneCameraPreviewIfConnected(): void {
+	if (phoneCameraPreviewEnabled && phoneCameraState.active && phoneCameraState.connected) {
+		showPhoneCameraOverlayWindow();
 	}
 }
+
 export function registerPhoneCameraHandlers() {
 	ipcMain.handle("recordly-phone-camera:get-state", async () => {
 		return getPhoneCameraState();
@@ -271,12 +230,8 @@ export function registerPhoneCameraHandlers() {
 			if (phoneCameraPreviewEnabled) {
 				showPhoneCameraOverlayWindow();
 			}
-			if (!phoneCameraState.connected) {
-				if (options?.reason === "selection") {
-					showPhoneCameraPairingWindow();
-				} else {
-					showPairingFallbackWhenNeeded();
-				}
+			if (shouldShowPhoneCameraPairing(options?.reason, phoneCameraState.connected)) {
+				showPhoneCameraPairingWindow();
 			}
 			return {
 				success: true,
@@ -308,9 +263,7 @@ export function registerPhoneCameraHandlers() {
 		if (phoneCameraPreviewEnabled) {
 			showPhoneCameraOverlayWindow();
 		}
-		if (persistedSession) {
-			showPairingFallbackWhenNeeded();
-		} else {
+		if (shouldShowPhoneCameraPairing(options?.reason, false)) {
 			showPhoneCameraPairingWindow();
 		}
 
@@ -357,7 +310,10 @@ export function registerPhoneCameraHandlers() {
 
 	ipcMain.handle("recordly-phone-camera:stop", async () => {
 		// Recording completion must not invalidate a phone that is still open and ready
-		// to reconnect. The next recording reuses this same local pairing session.
+		// to reconnect. Disable the desktop preview as well, otherwise restoring the
+		// editor window can make it reappear over the editor after recording stops.
+		// The next recording explicitly enables the preview again in phoneCameraStart.
+		phoneCameraPreviewEnabled = false;
 		hidePhoneCameraOverlayWindow();
 		return { success: true, ...getPhoneCameraState() };
 	});
@@ -373,7 +329,6 @@ export function registerPhoneCameraHandlers() {
 	});
 
 	ipcMain.handle("recordly-phone-camera:forget", async () => {
-		clearPairingFallbackTimer();
 		clearFrameLivenessTimer();
 		clearPersistedPhoneCameraSession();
 		latestPhoneCameraFrame = null;
@@ -388,5 +343,4 @@ export function registerPhoneCameraHandlers() {
 	void ensurePhoneCameraBridgeServer().catch((error) => {
 		console.warn("[phone-camera] Failed to prewarm local bridge:", error);
 	});
-	void restorePersistedPhoneCameraSession();
 }

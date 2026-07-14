@@ -39,16 +39,16 @@ afterEach(async () => {
 });
 
 describe("phone camera bridge", () => {
-	it("serves only the HTTPS image-frame client implementation", async () => {
+	it("serves an inactive page for an invalid pairing link", async () => {
 		const baseUrl = await startTestServer();
 		const response = await fetch(`${baseUrl}/phone-camera`);
 		const page = await response.text();
 
 		expect(response.status).toBe(410);
-		expect(page).toContain("/phone-camera/connect");
-		expect(page).toContain("/phone-camera/frame");
-		expect(page).not.toMatch(/RTCPeerConnection|RTCSessionDescription|RTCIceCandidate/i);
-		expect(page).not.toMatch(/stun:|\/api\/webrtc-/i);
+		expect(page).toContain("配对链接已失效");
+		expect(page).not.toContain("navigator.mediaDevices.getUserMedia");
+		expect(page).not.toContain("/phone-camera/connect");
+		expect(page).not.toContain("/phone-camera/frame");
 	});
 
 	it("returns 404 for removed WebRTC signaling routes on repeated requests", async () => {

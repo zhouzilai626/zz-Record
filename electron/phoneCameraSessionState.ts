@@ -1,5 +1,12 @@
 import { PHONE_CAMERA_DEVICE_ID, type PhoneCameraState } from "../src/lib/phoneCamera";
 
+export function shouldShowPhoneCameraPairing(
+	reason: string | undefined,
+	connected: boolean,
+): boolean {
+	return reason === "selection" && !connected;
+}
+
 export function createInactivePhoneCameraState(
 	current: Pick<PhoneCameraState, "deviceId">,
 ): PhoneCameraState {

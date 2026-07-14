@@ -15,7 +15,9 @@ export function getRecordingSessionManifestPath(videoPath: string) {
 	return path.join(path.dirname(videoPath), `${baseName}${RECORDING_SESSION_MANIFEST_SUFFIX}`);
 }
 
-export async function persistRecordingSessionManifest(session: RecordingSessionData): Promise<void> {
+export async function persistRecordingSessionManifest(
+	session: RecordingSessionData,
+): Promise<void> {
 	const normalizedVideoPath = normalizeVideoSourcePath(session.videoPath);
 	if (!normalizedVideoPath) {
 		return;
@@ -51,8 +53,7 @@ export async function resolveRecordingSessionManifest(
 
 	try {
 		const content = await fs.readFile(manifestPath, "utf-8");
-		const parsed =
-			parseJsonWithByteOrderMark<Partial<RecordingSessionManifest>>(content);
+		const parsed = parseJsonWithByteOrderMark<Partial<RecordingSessionManifest>>(content);
 		if (parsed.version !== 1 && parsed.version !== 2) {
 			return null;
 		}
@@ -138,5 +139,3 @@ export async function resolveRecordingSession(
 		webcamPath: linkedWebcamPath,
 	};
 }
-
-

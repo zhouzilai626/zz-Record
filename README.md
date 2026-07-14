@@ -1,231 +1,55 @@
-语言: 简中 | [EN](README.en.md)
+# ZZ Record
 
-<p align="center">
-  <img width="220" alt="Recordly logo" src="https://github.com/user-attachments/assets/082bb4b0-5fc5-4e9f-abda-55611fd6aded" />
-</p>
+一款面向教程、演示和工作记录的 Windows 屏幕录制与编辑工具。录完可直接剪辑、添加光标效果和缩放，并导出 MP4 或 GIF；也可以将手机作为局域网摄像头使用。
 
-<p align="center">
-  <img src="https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-111827?style=for-the-badge" alt="macOS Windows Linux" />
-  <img src="https://img.shields.io/badge/open%20source-AGPL3.0-2563eb?style=for-the-badge" alt="AGPL 3.0 license" />
-</p>
+> 当前首发版本仅支持 Windows x64。下载、安装和问题反馈都在本仓库的 [Releases](https://github.com/zhouzilai626/zz-Record/releases) 与 [Issues](https://github.com/zhouzilai626/zz-Record/issues)。
 
-### zz-Record：基于 Recordly 定制的演示录屏工具
-`zz-Record` 是基于 Recordly 定制维护的一套屏幕录制与编辑工具。它保留了上游的录屏、时间线、光标、缩放、摄像头叠加和导出能力，同时加入了这次迁移后的 Windows 定制能力、出包修复，以及本地手机摄像头接入流程。
+![录制与编辑效果](./docs/media/feature1.gif)
 
-当前这个仓库就是你现在使用的自定义源码仓库：
+## 适合做什么
 
-https://github.com/zhouzilai626/zz-Record
+- 录制整个屏幕或指定窗口
+- 录制麦克风和系统声音
+- 录制结束后直接剪辑、裁切、调速、添加注释和背景样式
+- 使用光标平滑、点击效果和自动缩放，让教程更易看清
+- 添加本地摄像头或手机摄像头画面
+- 导出 MP4 或 GIF，或保存项目后继续编辑
 
-https://github.com/user-attachments/assets/9b66c71d-ac97-49ff-a0c9-63ac26edf2e4
+![摄像头叠加效果](./docs/media/feature2.gif)
 
----
+## 下载与安装
 
-## zz-Record 是什么？
+1. 前往 [Releases](https://github.com/zhouzilai626/zz-Record/releases) 下载最新的 `zz-Record-windows-x64.exe`。
+2. 双击安装程序，按提示完成安装。
+3. 首次启动后选择要录制的屏幕或窗口；需要声音时，在开始录制前分别开启“麦克风”或“系统声音”。
 
-`zz-Record` 是一款用于录制并编辑屏幕内容的桌面应用，内置面向演示视频的动态呈现工具。它基于 Recordly 源码，但当前这个仓库跟踪的是你自己的定制版本，重点包括：
+当前安装包尚未进行 Windows 代码签名。Windows 可能显示 SmartScreen 提示，请仅从本仓库的 Release 页面下载，并核对发布页提供的 SHA-512 校验和。
 
-- Windows 源码迁移和本地可重建出包
-- 鼠标、缩放、导出等自定义迁移
-- 手机作为本地摄像头的源码接入
-- 本地 LAN 桥接的手机摄像头预览与录制
+## 手机作为摄像头
 
-zz-Record 支持：
+1. 在录制工具中打开摄像头菜单，选择“手机摄像头（本地）”。
+2. 使用手机扫描桌面端显示的二维码，并允许浏览器使用摄像头。
+3. 手机与电脑必须连接同一局域网。首次使用时，手机可能要求信任桌面端生成的本机 HTTPS 证书。
+4. 连接成功后，手机画面会作为摄像头素材参与录制；录制中的预览以受保护独立窗口显示，避免被重复录入画面。
 
-- **macOS** 14.0+
-- **Windows** 10 Build 19041+
-- **Linux** 现代发行版
+手机画面通过本地局域网 HTTPS 传输，不会上传到第三方服务。
 
-平台说明：
+## 系统要求与当前限制
 
-- **macOS** 使用基于 ScreenCaptureKit 的原生捕获辅助程序。
-- **Windows** 在支持的系统版本上使用原生 Windows Graphics Capture（WGC）辅助程序，并支持原生 WASAPI 音频。这一自定义分支目前主要按 Windows 路线验证和出包。
-- **Linux** 通过 Electron 捕获 API 录制。目前 Linux 还不支持隐藏真实光标。
+| 项目 | 当前支持 |
+| --- | --- |
+| 操作系统 | Windows 10 20H1（Build 19041）或更高版本，64 位 |
+| 录制 | 屏幕、窗口、麦克风、系统声音 |
+| 摄像头 | 本地摄像头、同一局域网内的手机摄像头 |
+| 导出 | MP4、GIF |
 
----
+- macOS 和 Linux 源码仍在仓库中，但当前没有经过同等验证的公开安装包。
+- 第三方扩展系统已临时停用，已安装的扩展不会执行。
+- 原始录制文件的音频在部分 Windows 原生录制路径中会以伴随音轨保存；请以编辑器预览和导出文件为准。
 
-# 当前定制分支亮点
+## 从源码运行
 
-## 本地手机摄像头接入
-这套自定义版本已经把“手机作为摄像头”的本地流程迁移进源码，目前支持：
-
-- 选择 `Phone Camera (Local)` 作为摄像头源
-- 桌面端弹出独立配对窗口
-- 手机通过本地局域网页面完成配对
-- 手机浏览器上传实时预览帧到桌面端
-- 桌面端显示手机画面预览
-- 录屏时把手机画面写入 webcam 录制链路
-
-当前边界：
-
-- 现在是“本地浏览器桥接”方案，不是原生手机 App
-- 已经打通配对、预览、录制
-
----
-
-# 核心功能
-
-## 自动缩放、光标润色与样式化画面
-Recordly 可以根据操作自动强调重点区域，平滑光标运动，添加动态效果，并将最终画面放进带有壁纸、纯色、渐变、模糊、留白和阴影的样式化边框中。
-
-<p>
-  <img src="./docs/media/feature1.gif" width="450" alt="Recordly cursor and zoom demo video">
-</p>
-
-## 动态摄像头气泡叠加
-你可以把摄像头素材作为气泡叠加层加入画面，使用预设位置或自定义坐标摆放，支持镜像、阴影和圆角调节，也可以让它跟随缩放变化，保证动态镜头里整体视觉更协调。
-
-<p>
-  <img src="./docs/media/feature2.gif" width="450" alt="Recordly webcam overlay demo video">
-</p>
-
-## 为演示设计的时间线编辑
-使用拖拽式时间线工具处理缩放、裁剪、变速区域、注释、额外音频区域以及裁切感知编辑，并将工作保存为 `.recordly` 项目文件，之后随时回来继续编辑。
-
-<p>
-  <img width="450" alt="timeline editor" src="https://github.com/user-attachments/assets/3692bd8f-7b8d-4a93-b696-d17c828487ea" />
-</p>
-
-## 扩展与市场
-
-Recordly 拥有一个社区驱动的扩展系统。任何人都可以构建和发布扩展来为 Recordly 添加新功能，例如光标点击音效、设备边框、浏览器模拟外壳、壁纸、渲染钩子、设置面板等等。
-
-浏览并安装社区扩展：[Recordly 扩展市场](https://marketplace.recordly.dev/extensions)。
-
----
-
-## 全部功能
-
-### 录制
-
-- 录制整个显示器或单个应用窗口
-- 录制完成后直接进入编辑器
-- 录制麦克风音频和系统音频
-- 在支持的平台上使用原生捕获后端
-- 从保存的 `.recordly` 项目文件继续编辑
-- 可在应用中打开已有录像或已有项目文件
-
-### 时间线与编辑
-
-- 拖拽式时间线编辑
-- 裁掉不需要的片段
-- 添加手动缩放区域
-- 根据光标活动生成自动缩放建议
-- 添加加速和减速区域
-- 添加文本、图片和图形注释
-- 在时间线上添加额外音频区域
-- 裁切录制画面
-- 保存并重新打开项目，保留编辑状态
-
-### 光标控制
-
-- 显示或隐藏渲染后的光标叠加层
-- 调整光标大小
-- 光标平滑
-- 光标运动模糊
-- 点击弹跳效果
-- 光标摆动效果
-- 光标循环模式，方便导出更自然的循环片段
-- 使用 macOS 风格的渲染光标素材
-
-### 摄像头叠加
-
-- 启用或禁用摄像头叠加素材
-- 上传、替换或移除摄像头素材
-- 镜像摄像头画面
-- 调整尺寸
-- 使用预设位置或自定义 X/Y 坐标
-- 调整边距
-- 调整圆角程度
-- 调整阴影强度
-- 可选的缩放联动摄像头缩放效果
-
-### 画面样式与背景
-
-- 内置壁纸
-- 运行时自动发现 wallpapers 目录中的壁纸
-- 上传自定义背景图片
-- 纯色背景
-- 渐变背景
-- 画面留白
-- 圆角
-- 背景模糊
-- 投影阴影
-- 最终画面的宽高比预设
-
-### 导出
-
-- MP4 导出
-- GIF 导出
-- 导出质量选择
-- GIF 帧率选择
-- GIF 循环开关
-- GIF 尺寸预设
-- 宽高比和输出尺寸控制
-- 在系统文件管理器中定位导出文件
-
-### 工作流与易用性
-
-- 可自定义键盘快捷键
-- 应用内快捷键说明
-- 在编辑器中直接打开反馈和问题链接
-- 编辑器偏好设置持久化
-- 导出后更快恢复预览
-
----
-
-# 截图
-
-<p align="center">
-  <img src="https://i.postimg.cc/8CrQtGJf/Screenshot-2026-04-30-at-5-11-52-pm.png" width="700" alt="Recordly recording interface screenshot">
-</p>
-
-<p align="center">
-  <img src="https://i.postimg.cc/pLSMfrTM/Screenshot-2026-04-30-at-5-11-45-pm.png" width="700" alt="Recordly editor screenshot">
-</p>
-
-<p align="center">
-  <img src="https://i.postimg.cc/Zn9VY6bg/Screenshot-2026-03-18-at-6-32-59-pm.png" width="700" alt="Recordly timeline screenshot">
-</p>
-
----
-
-# 安装
-
-## 下载构建版本
-
-预构建发布版本请见：
-
-https://github.com/zhouzilai626/zz-Record/releases
-
----
-
-## Arch Linux / Manjaro（yay）
-
-可通过 AUR 安装（[recordly-bin](https://aur.archlinux.org/packages/recordly-bin)）：
-
-```bash
-yay -S recordly-bin
-```
-
-PKGBUILD、桌面入口、发布同步，以及可选的**本地源码打包**都维护在 **[recordly-aur](https://github.com/firtoz/recordly-aur)** 中，因此这个仓库本身不需要承担 Arch 发布维护工作。关于维护者联系方式和软件包更新方式，请查看该仓库或 AUR 软件包页面。
-
----
-
-## 从源码构建
-
-### 前置依赖
-
-**macOS：** 安装 Xcode Command Line Tools（`xcode-select --install`）。
-
-**Linux（Ubuntu / Debian）：**
-
-```bash
-sudo apt install build-essential cmake libx11-dev libxtst-dev libxrandr-dev libxt-dev
-```
-
-**Windows：** 安装 Visual Studio 2022（或 Build Tools），并勾选 C++ 工作负载和 CMake。
-
-### 步骤
+开发构建需要 Node.js、Visual Studio 2022（或 Build Tools）的 C++ 工作负载和 CMake。
 
 ```bash
 git clone https://github.com/zhouzilai626/zz-Record.git
@@ -234,194 +58,22 @@ npm install
 npm run dev
 ```
 
-如果需要打包构建：
+构建 Windows 安装包：
 
 ```bash
-npm run build
+npm run build:win
 ```
 
-也可以使用平台专用构建命令：
+构建产物位于 `release/`，该目录不会提交到 Git。
 
-- `npm run build:mac`
-- `npm run build:win`
-- `npm run build:linux`
+## 反馈与贡献
 
----
+- 使用问题与功能建议：请提交 [Issue](https://github.com/zhouzilai626/zz-Record/issues)。
+- 代码贡献：请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)，提交聚焦的 Pull Request，并说明测试方式。
+- 安全问题：请不要在公开 Issue 中附上可利用细节，按 [SECURITY.md](./SECURITY.md) 的方式报告。
 
-## macOS：“App cannot be opened”
+## 许可证与归属
 
-本地构建的应用可能会被 macOS 隔离。
+ZZ Record 基于 [Recordly](https://github.com/webadderallorg/Recordly) 定制，Recordly 最初基于 [OpenScreen](https://github.com/siddharthvaddem/openscreen)。
 
-可以用以下命令移除隔离标记：
-
-```bash
-xattr -rd com.apple.quarantine /Applications/Recordly.app
-```
-
----
-
-# 系统要求
-
-| 平台 | 最低版本 | 说明 |
-|---|---|---|
-| **macOS** | macOS 14.0 (Sonoma) | 使用 ScreenCaptureKit 捕获音频和麦克风所必需。 |
-| **Windows** | Windows 10 20H1（Build 19041，2020 年 5 月） | 原生 Windows Graphics Capture（WGC）辅助程序及最佳光标隐藏行为所必需。 |
-| **Linux** | 任意现代发行版 | 通过 Electron 捕获录制。系统音频通常需要 PipeWire。 |
-
-> [!IMPORTANT]
-> 在 Windows 19041 之前的版本上，录制仍可能通过回退捕获方式工作，但真实系统光标可能仍会出现在视频中。
-
----
-
-# 使用方法
-
-## 录制
-
-1. 启动 Recordly。
-2. 选择屏幕或窗口。
-3. 选择麦克风和系统音频选项。
-4. 开始录制。
-5. 停止录制后进入编辑器。
-
-## 编辑
-
-在编辑器中，你可以：
-
-- 添加裁剪、缩放、变速区域和注释
-- 调整光标行为和预览音量
-- 使用壁纸、纯色、渐变、模糊、留白和圆角来美化画面
-- 添加或调整摄像头叠加素材
-- 添加额外音频区域
-- 裁切画面并选择宽高比
-
-你可以随时将工作保存为 `.recordly` 项目。
-
-## 导出
-
-支持以下导出格式：
-
-- **MP4**，适合常规视频输出
-- **GIF**，适合轻量分享和循环片段
-
-你可以在导出前调整格式相关设置，例如质量、GIF 帧率、GIF 循环方式和输出尺寸。
-
----
-
-# 限制
-
-### 光标捕获
-
-Recordly 会在录制画面上渲染一个经过美化的光标叠加层，但真实系统光标是否能被隐藏仍取决于平台能力。
-
-**macOS**
-- ScreenCaptureKit 可以较干净地排除真实光标。
-
-**Windows**
-- 最佳效果需要 Windows 10 Build 19041+ 和原生捕获辅助程序。
-- 较旧版本会回退到 Electron 捕获，因此真实光标可能仍会显示。
-
-**Linux**
-- Electron 桌面捕获目前不支持隐藏真实光标。
-- 如果同时启用渲染光标叠加，导出中可能会同时看到真实光标和样式化光标。
-
-### 系统音频
-
-系统音频支持因平台而异。
-
-**Windows**
-- 原生 WASAPI 支持
-
-**Linux**
-- 通常需要 PipeWire
-
-**macOS**
-- 需要 macOS 14.0+ 和基于 ScreenCaptureKit 的工作流
-
----
-
-# 工作原理
-
-Recordly 将平台相关的捕获层与基于渲染器的编辑、导出流程结合在一起。
-
-**捕获**
-- Electron 负责录制流程和应用级控制
-- macOS 使用原生 ScreenCaptureKit 辅助程序
-- Windows 在可用时使用原生 Windows Graphics Capture（WGC）辅助程序和原生音频辅助程序
-
-**编辑**
-- 时间线区域定义缩放、裁剪、变速、音频叠加和注释
-- 光标和摄像头样式都保存在编辑器状态中
-
-**渲染**
-- 场景合成由 **PixiJS** 负责
-
-**导出**
-- 预览使用的同一套场景逻辑会被用于导出 MP4 或 GIF
-
-**项目**
-- `.recordly` 文件会保存源媒体路径和编辑器状态，方便后续继续编辑
-
----
-
-# 贡献
-
-欢迎贡献。
-
-特别需要帮助的方向包括：
-
-- Linux 录制与光标行为改进
-- 导出性能与稳定性优化
-- UI 和 UX 打磨
-- 本地化工作
-- 更多编辑工具与工作流优化
-
-请尽量让 Pull Request 保持聚焦，测试录制、编辑、导出流程，并避免无关重构。
-
-请参阅 `CONTRIBUTING.md` 了解具体指南。
-
----
-
-# 社区
-
-问题反馈和功能建议：
-
-https://github.com/webadderallorg/Recordly/issues
-
-欢迎提交 Pull Request。
-
----
-
-# 支持者名单
-
-[![Ko-Fi](https://img.shields.io/badge/Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/webadderall)
-
-- Tadees
-- buildwithfur
-- Tobias
-- Anonymous Supporter
-- Tandava Appadoo
-- Digitalfastmind
-- Roberto Marcelino
-- Rajan RK
-- Francesco
-- Erwan
-- Anonymous supporter
-
----
-
-# 许可证
-
-Recordly 基于 **AGPL 3.0** 发布。
-
----
-
-# 致谢
-
-## 鸣谢
-
-Recordly 最初是从 [OpenScreen](https://github.com/siddharthvaddem/openscreen) 分叉而来，之后已逐步演变为一个不同的项目。
-
-创建者  
-[@webadderall](https://x.com/webadderall)
-
----
+本项目以 [GNU AGPL-3.0](./LICENSE.md) 发布。使用、修改或再发布时请保留许可证、版权声明和上述归属信息。

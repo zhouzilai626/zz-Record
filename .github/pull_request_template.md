@@ -1,44 +1,21 @@
-# Pull Request Template
+## 解决的问题
 
-## Description
-<!-- Briefly describe the purpose of this PR. -->
+关联 Issue：#
 
-## Motivation
-<!-- Explain why this change is needed. What problem does it solve? -->
+说明用户在什么场景下遇到问题，以及本次改动如何改善它。
 
-## Type of Change
-- [ ] New Feature
-- [ ] Bug Fix
-- [ ] Refactor / Code Cleanup
-- [ ] Documentation Update
-- [ ] Other (please specify)
+## 改动内容
 
-## Related Issue(s)
-<!-- Link to any related issue(s) (e.g., #123) -->
+- 待填写
 
-## Screenshots / Video
-<!-- Include screenshots or a short video demonstrating the change. If the change adds a new UI feature, attach an image. If it adds functionality best shown via video, embed a video. -->
+## 验证方式
 
-**Screenshot** (if applicable):
+写明执行的命令和手动验证步骤。涉及录制、声音、摄像头、编辑或导出时，请附截图或短视频。
 
-```markdown
-![Screenshot Description](path/to/screenshot.png)
-```
+## 检查清单
 
-**Video** (wherever possible):
-
-```html
-<video src="path/to/video.mp4" controls width="600"></video>
-```
-
-## Testing Guide
-<!-- Describe how reviewers can test the changes. Include steps, commands, or environment setup. -->
-
-## Checklist
-- [ ] I have performed a self-review of my code.
-- [ ] I have added any necessary screenshots or videos.
-- [ ] I have linked related issue(s) and updated the changelog if applicable.
-
----
-*Thank you for contributing!*
-
+- [ ] 我已自行检查改动，并保持 Pull Request 聚焦。
+- [ ] 我已运行与改动相关的测试或说明未运行原因。
+- [ ] 我没有提交 `release/`、`dist/`、录制文件、证书、私钥或用户数据。
+- [ ] 我没有重新启用第三方扩展执行。
+- [ ] 我已更新必要的文档、文案或迁移说明。

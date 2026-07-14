@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-	getHudOverlayWindowBounds,
-	resizeHudOverlayFallbackBounds,
-} from "./hudOverlayBounds";
+import { getHudOverlayWindowBounds, resizeHudOverlayFallbackBounds } from "./hudOverlayBounds";
 
 describe("getHudOverlayWindowBounds", () => {
 	const workArea = {

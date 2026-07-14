@@ -345,9 +345,11 @@ export function useWebcamPreviewOverlay({
 				attachPreviewStreamToNode(webcamPreviewRef.current);
 				attachPreviewStreamToNode(recordingWebcamPreviewRef.current);
 
-				void window.electronAPI.cameraOverlayShowLocal({ excludeFromCapture: recording }).catch((error) => {
-					console.warn("Failed to show local camera overlay:", error);
-				});
+				void window.electronAPI
+					.cameraOverlayShowLocal({ excludeFromCapture: recording })
+					.catch((error) => {
+						console.warn("Failed to show local camera overlay:", error);
+					});
 				const overlayVideo = document.createElement("video");
 				overlayVideo.muted = true;
 				overlayVideo.playsInline = true;

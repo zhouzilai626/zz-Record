@@ -913,7 +913,9 @@ interface Window {
 		phoneCameraSuspendPreview: () => Promise<
 			{ success: boolean } & import("../src/lib/phoneCamera").PhoneCameraState
 		>;
-		cameraOverlayShowLocal: (options?: { excludeFromCapture?: boolean }) => Promise<{ success: boolean }>;
+		cameraOverlayShowLocal: (options?: {
+			excludeFromCapture?: boolean;
+		}) => Promise<{ success: boolean }>;
 		cameraOverlayHideLocal: () => Promise<{ success: boolean }>;
 		cameraOverlaySendLocalFrame: (frame: {
 			frameDataUrl: string;
@@ -963,7 +965,11 @@ interface Window {
 		}>;
 		extensionsUninstall?: (id: string) => Promise<{ success: boolean; error?: string }>;
 		extensionsGetDirectory?: () => Promise<{ success: boolean; path?: string; error?: string }>;
-		extensionsOpenDirectory?: () => Promise<{ success: boolean; path?: string; error?: string }>;
+		extensionsOpenDirectory?: () => Promise<{
+			success: boolean;
+			path?: string;
+			error?: string;
+		}>;
 		extensionsMarketplaceSearch?: (params: {
 			query?: string;
 			tags?: string[];

@@ -1432,10 +1432,13 @@ export function sendLocalCameraOverlayFrame(payload: {
 	win.webContents.send("recordly-phone-camera:frame", payload);
 }
 
-ipcMain.handle("recordly-camera-overlay:show-local", (_event, options?: { excludeFromCapture?: boolean }) => {
-	showLocalCameraOverlayWindow(options);
-	return { success: true };
-});
+ipcMain.handle(
+	"recordly-camera-overlay:show-local",
+	(_event, options?: { excludeFromCapture?: boolean }) => {
+		showLocalCameraOverlayWindow(options);
+		return { success: true };
+	},
+);
 
 ipcMain.handle("recordly-camera-overlay:hide-local", () => {
 	hideLocalCameraOverlayWindow();
