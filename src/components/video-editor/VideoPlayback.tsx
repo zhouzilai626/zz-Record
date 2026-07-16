@@ -171,7 +171,7 @@ import { clampFocusToStage as clampFocusToStageUtil } from "./videoPlayback/focu
 import { layoutVideoContent as layoutVideoContentUtil } from "./videoPlayback/layoutUtils";
 import { updateOverlayIndicator } from "./videoPlayback/overlayUtils";
 import { createVideoEventHandlers } from "./videoPlayback/videoEventHandlers";
-import { getWebcamMediaTargetTimeSeconds, shouldSeekWebcamMedia } from "./videoPlayback/webcamSync";
+import { getWebcamPreviewSyncState, shouldSeekWebcamMedia } from "./videoPlayback/webcamSync";
 import { findDominantRegion } from "./videoPlayback/zoomRegionUtils";
 import {
 	applyZoomTransform,
@@ -2008,15 +2008,12 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 			const webcamDuration = Number.isFinite(webcamVideo.duration)
 				? webcamVideo.duration
 				: null;
-			const targetTime = getWebcamMediaTargetTimeSeconds({
+			const previewSyncState = getWebcamPreviewSyncState({
 				currentTime,
 				webcamDuration,
 				timeOffsetMs: webcamTimeOffsetMs,
 			});
-			const mediaTargetTime =
-				targetTime <= 0 && webcamDuration !== null && webcamDuration > 0
-					? Math.min(1 / 60, webcamDuration)
-					: targetTime;
+			const mediaTargetTime = previewSyncState.targetTime;
 
 			const timelineTimeMs = currentTime * 1000;
 			const activeSpeedRegion = speedRegionsRef.current.find(
@@ -2035,7 +2032,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 					isPlaying,
 					isSeeking: webcamVideo.seeking,
 					previousTimelineTime,
-					timelineTime: targetTime,
+					timelineTime: currentTime,
 					webcamCurrentTime: webcamVideo.currentTime,
 				})
 			) {
@@ -2046,7 +2043,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 				}
 			}
 
-			if (isPlaying) {
+			if (isPlaying && previewSyncState.shouldPlay) {
 				const playPromise = webcamVideo.play();
 				if (playPromise) {
 					playPromise.catch(() => undefined);
@@ -2055,7 +2052,7 @@ const VideoPlayback = forwardRef<VideoPlaybackRef, VideoPlaybackProps>(
 				webcamVideo.pause();
 			}
 
-			lastWebcamSyncTimeRef.current = targetTime;
+			lastWebcamSyncTimeRef.current = currentTime;
 		}, [currentTime, isPlaying, webcamEnabled, webcamTimeOffsetMs, webcamVideoPath]);
 
 		const handleWebcamMediaReady = useCallback(

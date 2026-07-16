@@ -185,9 +185,19 @@ function findCmake() {
 	return null;
 }
 
-function ensureTarAvailable() {
+function findTar() {
+	// Git Bash's tar rewrites Windows paths containing spaces when started from
+	// Node, so prefer the Windows system tar for Windows release builds.
+	if (process.platform === "win32") {
+		const systemTar = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
+		if (existsSync(systemTar)) {
+			return systemTar;
+		}
+	}
+
 	try {
 		execSync("tar --version", { stdio: "pipe" });
+		return "tar";
 	} catch {
 		throw new Error("[build-whisper-runtime] tar is required to unpack whisper.cpp sources.");
 	}
@@ -257,8 +267,8 @@ async function ensureSourceTree() {
 		await downloadFile(getSourceArchiveUrl(), archivePath);
 	}
 
-	ensureTarAvailable();
-	execFileSync("tar", ["-xzf", archivePath, "-C", extractRoot], { stdio: "inherit" });
+	const tar = findTar();
+	execFileSync(tar, ["-xzf", archivePath, "-C", extractRoot], { stdio: "inherit" });
 
 	if (!existsSync(path.join(extractedSourceDir, "CMakeLists.txt"))) {
 		throw new Error(

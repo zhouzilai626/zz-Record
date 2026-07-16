@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	getWebcamMediaTargetTimeSeconds,
+	getWebcamPreviewSyncState,
 	getWebcamPreviewTargetTimeSeconds,
 	shouldSeekWebcamMedia,
 } from "./webcamSync";
@@ -56,6 +57,61 @@ describe("getWebcamMediaTargetTimeSeconds", () => {
 				timeOffsetMs: 250,
 			}),
 		).toBe(0);
+	});
+});
+
+describe("getWebcamPreviewSyncState", () => {
+	it("freezes on the first decodable frame before the webcam starts", () => {
+		expect(
+			getWebcamPreviewSyncState({
+				currentTime: 0.1,
+				webcamDuration: 20,
+				timeOffsetMs: 250,
+			}),
+		).toEqual({
+			targetTime: 1 / 60,
+			shouldPlay: false,
+			boundary: "before-start",
+		});
+	});
+
+	it("keeps playing while the mapped webcam time is active", () => {
+		expect(
+			getWebcamPreviewSyncState({
+				currentTime: 5,
+				webcamDuration: 10,
+				timeOffsetMs: 0,
+			}),
+		).toEqual({
+			targetTime: 5,
+			shouldPlay: true,
+			boundary: "active",
+		});
+	});
+
+	it("freezes before the exact duration when the webcam ends before the timeline", () => {
+		const state = getWebcamPreviewSyncState({
+			currentTime: 10,
+			webcamDuration: 9.8,
+			timeOffsetMs: 0,
+		});
+
+		expect(state.boundary).toBe("after-end");
+		expect(state.shouldPlay).toBe(false);
+		expect(state.targetTime).toBeCloseTo(9.8 - 1 / 60);
+		expect(state.targetTime).toBeLessThan(9.8);
+	});
+
+	it("handles negative offsets that make the webcam reach its end early", () => {
+		const state = getWebcamPreviewSyncState({
+			currentTime: 9.8,
+			webcamDuration: 10,
+			timeOffsetMs: -250,
+		});
+
+		expect(state.boundary).toBe("after-end");
+		expect(state.shouldPlay).toBe(false);
+		expect(state.targetTime).toBeLessThan(10);
 	});
 });
 

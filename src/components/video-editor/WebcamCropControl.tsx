@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { CropRegion } from "./types";
-import { getWebcamPreviewTargetTimeSeconds } from "./videoPlayback/webcamSync";
+import { getWebcamPreviewSyncState } from "./videoPlayback/webcamSync";
 import { normalizeWebcamCropRegion } from "./webcamOverlay";
 
 type CropHandle = "move" | "nw" | "ne" | "sw" | "se";
@@ -169,15 +169,12 @@ export function WebcamCropControl({
 		}
 
 		const webcamDuration = Number.isFinite(video.duration) ? video.duration : null;
-		const targetTime = getWebcamPreviewTargetTimeSeconds({
+		const previewSyncState = getWebcamPreviewSyncState({
 			currentTime: previewCurrentTime,
 			webcamDuration,
 			timeOffsetMs: previewTimeOffsetMs,
 		});
-		const mediaTargetTime =
-			targetTime <= 0 && webcamDuration !== null && webcamDuration > 0
-				? Math.min(1 / 60, webcamDuration)
-				: targetTime;
+		const mediaTargetTime = previewSyncState.targetTime;
 		const driftThreshold = previewPlaying ? 0.35 : 0.01;
 
 		if (Math.abs(video.currentTime - mediaTargetTime) > driftThreshold) {
@@ -188,7 +185,7 @@ export function WebcamCropControl({
 			}
 		}
 
-		if (previewPlaying) {
+		if (previewPlaying && previewSyncState.shouldPlay) {
 			const playPromise = video.play();
 			if (playPromise) {
 				playPromise.catch(() => undefined);

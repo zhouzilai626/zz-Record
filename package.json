@@ -12,7 +12,7 @@
 		"url": "https://github.com/zhouzilai626/zz-Record/issues"
 	},
 	"private": false,
-	"version": "1.4.4",
+	"version": "1.4.5",
 	"type": "module",
 	"scripts": {
 		"dev": "vite --config vite.config.ts",
