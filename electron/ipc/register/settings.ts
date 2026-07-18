@@ -3,12 +3,8 @@ import fs from "node:fs/promises";
 import { app, ipcMain } from "electron";
 import { hideCursor } from "../../cursorHider";
 import { closeCountdownWindow, createCountdownWindow, getCountdownWindow } from "../../windows";
-import {
-	APP_SETTINGS_FILE,
-	COUNTDOWN_SETTINGS_FILE,
-	RECORDINGS_SETTINGS_FILE,
-	SHORTCUTS_FILE,
-} from "../constants";
+import { APP_SETTINGS_FILE, COUNTDOWN_SETTINGS_FILE, SHORTCUTS_FILE } from "../constants";
+import { loadRecordingsSettings, updateRecordingsSettings } from "../project/manager";
 import {
 	countdownCancelled,
 	countdownInProgress,
@@ -143,26 +139,16 @@ export function registerSettingsHandlers() {
 	// Countdown timer before recording
 	// ---------------------------------------------------------------------------
 	ipcMain.handle("get-recording-preferences", async () => {
-		try {
-			const content = await fs.readFile(RECORDINGS_SETTINGS_FILE, "utf-8");
-			const parsed = parseJsonWithByteOrderMark<Record<string, unknown>>(content);
-			return {
-				success: true,
-				microphoneEnabled: parsed.microphoneEnabled === true,
-				microphoneDeviceId:
-					typeof parsed.microphoneDeviceId === "string"
-						? parsed.microphoneDeviceId
-						: undefined,
-				systemAudioEnabled: parsed.systemAudioEnabled === true,
-			};
-		} catch {
-			return {
-				success: true,
-				microphoneEnabled: false,
-				microphoneDeviceId: undefined,
-				systemAudioEnabled: false,
-			};
-		}
+		const parsed = await loadRecordingsSettings();
+		return {
+			success: true,
+			microphoneEnabled: parsed.microphoneEnabled === true,
+			microphoneDeviceId:
+				typeof parsed.microphoneDeviceId === "string"
+					? parsed.microphoneDeviceId
+					: undefined,
+			systemAudioEnabled: parsed.systemAudioEnabled === true,
+		};
 	});
 
 	ipcMain.handle("get-recording-audio-lab-config", () => {
@@ -180,19 +166,12 @@ export function registerSettingsHandlers() {
 			},
 		) => {
 			try {
-				let existing: Record<string, unknown> = {};
-				try {
-					const content = await fs.readFile(RECORDINGS_SETTINGS_FILE, "utf-8");
-					existing = parseJsonWithByteOrderMark<Record<string, unknown>>(content);
-				} catch {
-					// file doesn't exist yet
+				const patch: Record<string, unknown> = { ...prefs };
+				if (prefs.microphoneDeviceId === undefined) {
+					// Selecting the OS default microphone must clear a previously persisted ID.
+					patch.microphoneDeviceId = null;
 				}
-				const merged = { ...existing, ...prefs };
-				await fs.writeFile(
-					RECORDINGS_SETTINGS_FILE,
-					JSON.stringify(merged, null, 2),
-					"utf-8",
-				);
+				await updateRecordingsSettings(patch);
 				return { success: true };
 			} catch (error) {
 				console.error("Failed to save recording preferences:", error);

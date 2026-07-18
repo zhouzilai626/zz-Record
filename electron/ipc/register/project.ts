@@ -5,6 +5,7 @@ import path from "node:path";
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { RECORDINGS_DIR } from "../../appPaths";
 import { buildMediaUrl, ensureMediaServer, getMediaServerBaseUrl } from "../../mediaServer";
+import { atomicWriteFile } from "../atomicFile";
 import { LEGACY_PROJECT_FILE_EXTENSIONS, PROJECT_FILE_EXTENSION } from "../constants";
 import {
 	getProjectsDir,
@@ -329,10 +330,9 @@ export function registerProjectHandlers() {
 						: null;
 
 				if (trustedExistingProjectPath) {
-					await fs.writeFile(
+					await atomicWriteFile(
 						trustedExistingProjectPath,
 						JSON.stringify(preparedProject.projectData, null, 2),
-						"utf-8",
 					);
 					setCurrentProjectPath(trustedExistingProjectPath);
 					await saveProjectThumbnail(trustedExistingProjectPath, thumbnailDataUrl);
@@ -374,10 +374,9 @@ export function registerProjectHandlers() {
 					};
 				}
 
-				await fs.writeFile(
+				await atomicWriteFile(
 					result.filePath,
 					JSON.stringify(preparedProject.projectData, null, 2),
-					"utf-8",
 				);
 				setCurrentProjectPath(result.filePath);
 				await saveProjectThumbnail(result.filePath, thumbnailDataUrl);
@@ -455,10 +454,9 @@ export function registerProjectHandlers() {
 					return overwriteCheck;
 				}
 
-				await fs.writeFile(
+				await atomicWriteFile(
 					targetProjectPath,
 					JSON.stringify(preparedProject.projectData, null, 2),
-					"utf-8",
 				);
 				await saveProjectThumbnail(targetProjectPath, thumbnailDataUrl);
 				await rememberRecentProject(targetProjectPath);

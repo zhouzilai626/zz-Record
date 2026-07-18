@@ -4,6 +4,7 @@ import path from "node:path";
 import { app } from "electron";
 import { RECORDINGS_DIR, USER_DATA_PATH } from "../../appPaths";
 import { isSupportedLocalMediaPath } from "../../mediaTypes";
+import { atomicWriteFile } from "../atomicFile";
 import {
 	LEGACY_PROJECT_FILE_EXTENSIONS,
 	MAX_RECENT_PROJECTS,
@@ -95,9 +96,8 @@ export function isAllowedLocalReadPath(candidatePath: string) {
 }
 
 // Keep loopback media-server access restricted to allowlisted or explicitly
-// approved files. Direct renderer-side read-local-file calls can be more
-// permissive, but URL-based serving must stay scoped so arbitrary paths do not
-// become fetchable inside the app.
+// approved files. The direct read-local-file IPC enforces the same allowlist,
+// so arbitrary paths cannot become fetchable inside the app.
 export async function isAllowedLocalMediaPath(candidatePath: string) {
 	const normalizedCandidatePath = normalizePath(candidatePath);
 	return isAllowedLocalReadPath(normalizedCandidatePath);
@@ -244,14 +244,42 @@ export async function getProjectsDir() {
 	return projectsDir;
 }
 
-export async function persistRecordingsDirectorySetting(nextDir: string) {
-	setCustomRecordingsDir(path.resolve(nextDir));
-	setRecordingsDirLoaded(true);
-	await fs.writeFile(
-		RECORDINGS_SETTINGS_FILE,
-		JSON.stringify({ recordingsDir: path.resolve(nextDir) }, null, 2),
-		"utf-8",
+let recordingsSettingsWriteQueue: Promise<void> = Promise.resolve();
+
+export async function loadRecordingsSettings(): Promise<Record<string, unknown>> {
+	try {
+		const content = await fs.readFile(RECORDINGS_SETTINGS_FILE, "utf-8");
+		const parsed = parseJsonWithByteOrderMark<unknown>(content);
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: {};
+	} catch {
+		return {};
+	}
+}
+
+export function updateRecordingsSettings(
+	patch: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+	const update = recordingsSettingsWriteQueue.then(async () => {
+		const existing = await loadRecordingsSettings();
+		const next = { ...existing, ...patch };
+		await atomicWriteFile(RECORDINGS_SETTINGS_FILE, JSON.stringify(next, null, 2));
+		return next;
+	});
+
+	recordingsSettingsWriteQueue = update.then(
+		() => undefined,
+		() => undefined,
 	);
+	return update;
+}
+
+export async function persistRecordingsDirectorySetting(nextDir: string) {
+	const normalizedDir = path.resolve(nextDir);
+	await updateRecordingsSettings({ recordingsDir: normalizedDir });
+	setCustomRecordingsDir(normalizedDir);
+	setRecordingsDirLoaded(true);
 }
 
 export function hasProjectFileExtension(filePath: string) {
