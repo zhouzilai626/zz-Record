@@ -39,9 +39,8 @@ export async function isExecutableFile(filePath: string) {
 	}
 }
 
-export async function resolveWhisperExecutablePath(preferredPath?: string | null) {
+export async function resolveWhisperExecutablePath() {
 	const candidatePaths = [
-		preferredPath?.trim() || null,
 		...getBundledWhisperExecutableCandidates(),
 		process.env["WHISPER_CPP_PATH"]?.trim() || null,
 		process.platform === "darwin" ? "/opt/homebrew/bin/whisper-cli" : null,
@@ -188,7 +187,6 @@ export async function detectSilenceIntervals(options: {
 
 export async function generateAutoCaptionsFromVideo(options: {
 	videoPath: string;
-	whisperExecutablePath?: string;
 	whisperModelPath: string;
 	language?: string;
 }) {
@@ -198,7 +196,7 @@ export async function generateAutoCaptionsFromVideo(options: {
 		throw new Error("Missing source video path.");
 	}
 
-	const whisperExecutablePath = await resolveWhisperExecutablePath(options.whisperExecutablePath);
+	const whisperExecutablePath = await resolveWhisperExecutablePath();
 	const whisperModelPath = path.resolve(options.whisperModelPath);
 	await ensureReadableFile(whisperExecutablePath, { executable: true });
 	await ensureReadableFile(whisperModelPath);

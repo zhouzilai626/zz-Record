@@ -60,6 +60,20 @@ function getPartialExportDestinationPath(destinationPath: string) {
 
 const MAX_IN_MEMORY_EXPORT_BYTES = 0x7fffffff;
 
+function resolveConfiguredSmokeExportPath(outputPath: string): string | null {
+	if (process.env.RECORDLY_SMOKE_EXPORT !== "1") {
+		return null;
+	}
+
+	const configuredPath = process.env.RECORDLY_SMOKE_EXPORT_OUTPUT;
+	if (!configuredPath) {
+		return null;
+	}
+
+	const resolvedOutputPath = path.resolve(outputPath);
+	return resolvedOutputPath === path.resolve(configuredPath) ? resolvedOutputPath : null;
+}
+
 function getInMemoryExportTooLargeMessage(byteLength: number) {
 	if (byteLength <= MAX_IN_MEMORY_EXPORT_BYTES) {
 		return null;
@@ -905,6 +919,12 @@ export function registerExportHandlers() {
 			captionSidecar?: CaptionSidecarPayload,
 		) => {
 			try {
+				const resolvedPath = resolveConfiguredSmokeExportPath(outputPath);
+				if (!resolvedPath) {
+					throw new Error(
+						"Direct export destinations are only available to configured smoke exports",
+					);
+				}
 				const sidecarPayload = parseCaptionSidecarPayload(captionSidecar);
 				const sizeError = getInMemoryExportTooLargeMessage(videoData.byteLength);
 				if (sizeError) {
@@ -916,7 +936,6 @@ export function registerExportHandlers() {
 					};
 				}
 
-				const resolvedPath = path.resolve(outputPath);
 				await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
 				await fs.writeFile(resolvedPath, Buffer.from(videoData));
 				const captionSidecarResult = await writeCaptionSidecarsBestEffort(
@@ -924,7 +943,6 @@ export function registerExportHandlers() {
 					sidecarPayload,
 				);
 				approveUserPath(resolvedPath);
-
 				return {
 					success: true,
 					path: resolvedPath,
@@ -935,7 +953,7 @@ export function registerExportHandlers() {
 					canceled: false,
 				};
 			} catch (error) {
-				console.error("Failed to write exported video to path:", error);
+				console.error("Failed to write configured smoke export:", error);
 				return {
 					success: false,
 					message: "Failed to write exported video",
@@ -981,24 +999,13 @@ export function registerExportHandlers() {
 
 			try {
 				const sidecarPayload = parseCaptionSidecarPayload(payload.captionSidecar);
-				if (payload.outputPath) {
-					const resolvedPath = path.resolve(payload.outputPath);
-					await moveExportedTempFile(tempPath, resolvedPath);
-					releaseOwnedExportPath(tempPath);
-					const captionSidecarResult = await writeCaptionSidecarsBestEffort(
-						resolvedPath,
-						sidecarPayload,
+				const configuredSmokeExportPath = payload.outputPath
+					? resolveConfiguredSmokeExportPath(payload.outputPath)
+					: null;
+				if (payload.outputPath && !configuredSmokeExportPath) {
+					throw new Error(
+						"Direct export destinations are only available to configured smoke exports",
 					);
-					approveUserPath(resolvedPath);
-					return {
-						success: true,
-						path: resolvedPath,
-						canceled: false,
-						message: withCaptionSidecarMessage(
-							"Video exported successfully",
-							captionSidecarResult,
-						),
-					};
 				}
 
 				const isGif = fileName.toLowerCase().endsWith(".gif");
@@ -1013,9 +1020,11 @@ export function registerExportHandlers() {
 					properties: ["createDirectory", "showOverwriteConfirmation"],
 				};
 
-				const result = parentWindow
-					? await dialog.showSaveDialog(parentWindow, saveDialogOptions)
-					: await dialog.showSaveDialog(saveDialogOptions);
+				const result = configuredSmokeExportPath
+					? { canceled: false, filePath: configuredSmokeExportPath }
+					: parentWindow
+						? await dialog.showSaveDialog(parentWindow, saveDialogOptions)
+						: await dialog.showSaveDialog(saveDialogOptions);
 
 				if (result.canceled || !result.filePath) {
 					// Leave the temp file in place so the renderer can offer "Save Again"

@@ -657,28 +657,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
 		outputPath: string,
 		captionSidecar?: {
 			format: "srt" | "vtt" | "both";
-			cues: Array<{
-				startMs: number;
-				endMs: number;
-				text: string;
-			}>;
+			cues: Array<{ startMs: number; endMs: number; text: string }>;
 		},
-	) => {
-		return ipcRenderer.invoke(
-			"write-exported-video-to-path",
-			videoData,
-			outputPath,
-			captionSidecar,
-		);
-	},
+	) => ipcRenderer.invoke("write-exported-video-to-path", videoData, outputPath, captionSidecar),
 	openVideoFilePicker: (options?: { includeProjects?: boolean }) => {
 		return ipcRenderer.invoke("open-video-file-picker", options);
 	},
 	openAudioFilePicker: () => {
 		return ipcRenderer.invoke("open-audio-file-picker");
-	},
-	openWhisperExecutablePicker: () => {
-		return ipcRenderer.invoke("open-whisper-executable-picker");
 	},
 	openWhisperModelPicker: () => {
 		return ipcRenderer.invoke("open-whisper-model-picker");
@@ -714,7 +700,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	},
 	generateAutoCaptions: (options: {
 		videoPath: string;
-		whisperExecutablePath?: string;
 		whisperModelPath: string;
 		language?: string;
 	}) => {

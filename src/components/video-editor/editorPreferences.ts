@@ -71,7 +71,6 @@ type PresetCropRegion = ProjectEditorState["cropRegion"];
 export interface EditorPresetSnapshot extends PersistedEditorControls {
 	cropRegion: PresetCropRegion;
 	autoCaptionSettings: PresetAutoCaptionSettings;
-	whisperExecutablePath: string | null;
 	whisperModelPath: string | null;
 }
 
@@ -88,7 +87,6 @@ export interface EditorPreferences extends PersistedEditorControls {
 	customAspectHeight: string;
 	customWallpapers: string[];
 	autoApplyFreshRecordingAutoZooms: boolean;
-	whisperExecutablePath: string | null;
 	whisperModelPath: string | null;
 }
 
@@ -153,7 +151,6 @@ export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = {
 	customAspectHeight: "9",
 	customWallpapers: [],
 	autoApplyFreshRecordingAutoZooms: true,
-	whisperExecutablePath: null,
 	whisperModelPath: null,
 };
 
@@ -216,9 +213,6 @@ function normalizeEditorPresetSnapshot(candidate: unknown): EditorPresetSnapshot
 		...normalizeEditorControls(normalizedPreferences, normalizedPreferences),
 		cropRegion: normalizedCropRegion,
 		autoCaptionSettings: normalizePresetAutoCaptionSettings(raw.autoCaptionSettings),
-		whisperExecutablePath:
-			normalizeNullablePath(raw.whisperExecutablePath) ??
-			normalizedPreferences.whisperExecutablePath,
 		whisperModelPath:
 			normalizeNullablePath(raw.whisperModelPath) ?? normalizedPreferences.whisperModelPath,
 	};
@@ -441,8 +435,6 @@ export function normalizeEditorPreferences(
 			raw.autoApplyFreshRecordingAutoZooms,
 			fallback.autoApplyFreshRecordingAutoZooms,
 		),
-		whisperExecutablePath:
-			normalizeNullablePath(raw.whisperExecutablePath) ?? fallback.whisperExecutablePath,
 		whisperModelPath: normalizeNullablePath(raw.whisperModelPath) ?? fallback.whisperModelPath,
 	};
 }

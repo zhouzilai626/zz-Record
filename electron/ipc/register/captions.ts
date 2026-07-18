@@ -112,32 +112,6 @@ export function registerCaptionHandlers() {
 		}
 	});
 
-	ipcMain.handle("open-whisper-executable-picker", async () => {
-		try {
-			const result = await dialog.showOpenDialog({
-				title: "Select Whisper Executable",
-				filters: [
-					{
-						name: "Executables",
-						extensions: process.platform === "win32" ? ["exe", "cmd", "bat"] : ["*"],
-					},
-					{ name: "All Files", extensions: ["*"] },
-				],
-				properties: ["openFile"],
-			});
-
-			if (result.canceled || result.filePaths.length === 0) {
-				return { success: false, canceled: true };
-			}
-
-			approveUserPath(result.filePaths[0]);
-			return { success: true, path: result.filePaths[0] };
-		} catch (error) {
-			console.error("Failed to open Whisper executable picker:", error);
-			return { success: false, error: String(error) };
-		}
-	});
-
 	ipcMain.handle("open-whisper-model-picker", async () => {
 		try {
 			const result = await dialog.showOpenDialog({
@@ -227,7 +201,6 @@ export function registerCaptionHandlers() {
 			_,
 			options: {
 				videoPath: string;
-				whisperExecutablePath: string;
 				whisperModelPath: string;
 				language?: string;
 			},

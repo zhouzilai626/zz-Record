@@ -556,9 +556,6 @@ export default function VideoEditor() {
 		DEFAULT_AUTO_CAPTION_SETTINGS,
 	);
 	const [includeCaptionSidecar, setIncludeCaptionSidecar] = useState(false);
-	const [whisperExecutablePath, setWhisperExecutablePath] = useState<string | null>(
-		initialEditorPreferences.whisperExecutablePath,
-	);
 	const [whisperModelPath, setWhisperModelPath] = useState<string | null>(
 		initialEditorPreferences.whisperModelPath,
 	);
@@ -791,7 +788,6 @@ export default function VideoEditor() {
 			gifLoop,
 			gifSizePreset,
 			autoCaptionSettings: { ...autoCaptionSettings },
-			whisperExecutablePath,
 			whisperModelPath,
 		}),
 		[
@@ -848,7 +844,6 @@ export default function VideoEditor() {
 			gifLoop,
 			gifSizePreset,
 			autoCaptionSettings,
-			whisperExecutablePath,
 			whisperModelPath,
 		],
 	);
@@ -946,7 +941,6 @@ export default function VideoEditor() {
 		setGifLoop(snapshot.gifLoop);
 		setGifSizePreset(snapshot.gifSizePreset);
 		setAutoCaptionSettings({ ...snapshot.autoCaptionSettings });
-		setWhisperExecutablePath(snapshot.whisperExecutablePath);
 		setWhisperModelPath(snapshot.whisperModelPath);
 	}, []);
 
@@ -2602,7 +2596,6 @@ export default function VideoEditor() {
 			gifFrameRate,
 			gifLoop,
 			gifSizePreset,
-			whisperExecutablePath,
 			whisperModelPath,
 		});
 	}, [
@@ -2658,7 +2651,6 @@ export default function VideoEditor() {
 		gifFrameRate,
 		gifLoop,
 		gifSizePreset,
-		whisperExecutablePath,
 		whisperModelPath,
 	]);
 
@@ -2698,16 +2690,6 @@ export default function VideoEditor() {
 		})();
 
 		return () => unsubscribe?.();
-	}, []);
-
-	const handlePickWhisperExecutable = useCallback(async () => {
-		const result = await window.electronAPI.openWhisperExecutablePicker();
-		if (!result.success || !result.path) {
-			return;
-		}
-
-		setWhisperExecutablePath(result.path);
-		toast.success("Whisper executable selected");
 	}, []);
 
 	const handleDownloadWhisperSmallModel = useCallback(async () => {
@@ -2804,7 +2786,6 @@ export default function VideoEditor() {
 		try {
 			const result = await window.electronAPI.generateAutoCaptions({
 				videoPath: sourcePath,
-				whisperExecutablePath: whisperExecutablePath ?? undefined,
 				whisperModelPath,
 				language: autoCaptionSettings.language,
 			});
@@ -2835,7 +2816,6 @@ export default function VideoEditor() {
 		syncActiveVideoSource,
 		videoPath,
 		videoSourcePath,
-		whisperExecutablePath,
 		whisperModelPath,
 	]);
 
@@ -6437,13 +6417,11 @@ export default function VideoEditor() {
 							annotationRegions={annotationRegions}
 							autoCaptions={autoCaptions}
 							autoCaptionSettings={autoCaptionSettings}
-							whisperExecutablePath={whisperExecutablePath}
 							whisperModelPath={whisperModelPath}
 							whisperModelDownloadStatus={whisperModelDownloadStatus}
 							whisperModelDownloadProgress={whisperModelDownloadProgress}
 							isGeneratingCaptions={isGeneratingCaptions}
 							onAutoCaptionSettingsChange={setAutoCaptionSettings}
-							onPickWhisperExecutable={handlePickWhisperExecutable}
 							onPickWhisperModel={handlePickWhisperModel}
 							onGenerateAutoCaptions={handleGenerateAutoCaptions}
 							onClearAutoCaptions={handleClearAutoCaptions}

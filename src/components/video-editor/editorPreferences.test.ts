@@ -220,7 +220,7 @@ describe("editorPreferences", () => {
 		});
 	});
 
-	it("preserves custom Whisper paths from stored preferences", () => {
+	it("discards legacy custom Whisper executable paths from stored preferences", () => {
 		vi.stubGlobal(
 			"localStorage",
 			createStorageMock({
@@ -232,9 +232,9 @@ describe("editorPreferences", () => {
 		);
 
 		expect(loadEditorPreferences()).toMatchObject({
-			whisperExecutablePath: "/usr/local/bin/whisper-cli",
 			whisperModelPath: "/Users/test/models/ggml-base.bin",
 		});
+		expect(loadEditorPreferences()).not.toHaveProperty("whisperExecutablePath");
 	});
 
 	it("saves all editor controls with normalization", () => {
@@ -314,19 +314,18 @@ describe("editorPreferences", () => {
 		});
 	});
 
-	it("saves custom Whisper paths", () => {
+	it("saves a custom Whisper model path without persisting an executable path", () => {
 		const localStorage = createStorageMock();
 		vi.stubGlobal("localStorage", localStorage);
 
 		saveEditorPreferences({
-			whisperExecutablePath: "/opt/homebrew/bin/whisper-cli",
 			whisperModelPath: "/Users/test/models/ggml-small.bin",
 		});
 
 		expect(loadEditorPreferences()).toMatchObject({
-			whisperExecutablePath: "/opt/homebrew/bin/whisper-cli",
 			whisperModelPath: "/Users/test/models/ggml-small.bin",
 		});
+		expect(loadEditorPreferences()).not.toHaveProperty("whisperExecutablePath");
 	});
 
 	it("loads editor preferences from Electron app settings when available", () => {

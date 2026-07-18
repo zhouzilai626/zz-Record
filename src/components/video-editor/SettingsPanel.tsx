@@ -828,13 +828,11 @@ interface SettingsPanelProps {
 	onAnnotationDelete?: (id: string) => void;
 	autoCaptions?: CaptionCue[];
 	autoCaptionSettings?: AutoCaptionSettings;
-	whisperExecutablePath?: string | null;
 	whisperModelPath?: string | null;
 	whisperModelDownloadStatus?: "idle" | "downloading" | "downloaded" | "error";
 	whisperModelDownloadProgress?: number;
 	isGeneratingCaptions?: boolean;
 	onAutoCaptionSettingsChange?: (settings: AutoCaptionSettings) => void;
-	onPickWhisperExecutable?: () => void;
 	onPickWhisperModel?: () => void;
 	onGenerateAutoCaptions?: () => void;
 	onClearAutoCaptions?: () => void;

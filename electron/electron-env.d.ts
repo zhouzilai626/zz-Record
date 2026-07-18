@@ -636,11 +636,7 @@ interface Window {
 			outputPath: string,
 			captionSidecar?: {
 				format: "srt" | "vtt" | "both";
-				cues: Array<{
-					startMs: number;
-					endMs: number;
-					text: string;
-				}>;
+				cues: Array<{ startMs: number; endMs: number; text: string }>;
 			},
 		) => Promise<{
 			success: boolean;
@@ -660,12 +656,6 @@ interface Window {
 			error?: string;
 		}>;
 		openAudioFilePicker: () => Promise<{ success: boolean; path?: string; canceled?: boolean }>;
-		openWhisperExecutablePicker: () => Promise<{
-			success: boolean;
-			path?: string;
-			canceled?: boolean;
-			error?: string;
-		}>;
 		openWhisperModelPicker: () => Promise<{
 			success: boolean;
 			path?: string;
@@ -695,7 +685,6 @@ interface Window {
 		) => () => void;
 		generateAutoCaptions: (options: {
 			videoPath: string;
-			whisperExecutablePath?: string;
 			whisperModelPath: string;
 			language?: string;
 		}) => Promise<{
