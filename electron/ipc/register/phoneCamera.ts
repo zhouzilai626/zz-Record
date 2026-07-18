@@ -1,13 +1,10 @@
 import { randomUUID } from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import { BrowserWindow, ipcMain } from "electron";
 import {
 	PHONE_CAMERA_DEVICE_ID,
 	type PhoneCameraFramePayload,
 	type PhoneCameraState,
 } from "../../../src/lib/phoneCamera";
-import { USER_DATA_PATH } from "../../appPaths";
 import {
 	configurePhoneCameraBridgeSession,
 	ensurePhoneCameraBridgeServer,
@@ -26,13 +23,7 @@ import {
 } from "../../windows";
 
 const PHONE_CAMERA_STATE_CHANGED_CHANNEL = "recordly-phone-camera:state-changed";
-const PHONE_CAMERA_SESSION_PATH = path.join(USER_DATA_PATH, "phone-camera-session.json");
 const PHONE_CAMERA_FRAME_TIMEOUT_MS = 5_000;
-
-type PersistedPhoneCameraSession = {
-	sessionId: string;
-	pairingCode: string;
-};
 
 const phoneCameraState: PhoneCameraState = {
 	active: false,
@@ -49,43 +40,6 @@ const phoneCameraState: PhoneCameraState = {
 let latestPhoneCameraFrame: PhoneCameraFramePayload | null = null;
 let frameLivenessTimer: NodeJS.Timeout | null = null;
 let phoneCameraPreviewEnabled = true;
-
-function readPersistedPhoneCameraSession(): PersistedPhoneCameraSession | null {
-	try {
-		const value = JSON.parse(
-			fs.readFileSync(PHONE_CAMERA_SESSION_PATH, "utf8"),
-		) as Partial<PersistedPhoneCameraSession>;
-		if (
-			typeof value.sessionId === "string" &&
-			/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(value.sessionId) &&
-			typeof value.pairingCode === "string" &&
-			/^[A-F0-9]{6}$/i.test(value.pairingCode)
-		) {
-			return { sessionId: value.sessionId, pairingCode: value.pairingCode.toUpperCase() };
-		}
-	} catch {
-		// No prior pairing has been completed on this computer yet.
-	}
-
-	return null;
-}
-
-function persistPhoneCameraSession(session: PersistedPhoneCameraSession): void {
-	try {
-		fs.mkdirSync(path.dirname(PHONE_CAMERA_SESSION_PATH), { recursive: true });
-		fs.writeFileSync(PHONE_CAMERA_SESSION_PATH, JSON.stringify(session), "utf8");
-	} catch (error) {
-		console.warn("[phone-camera] Failed to persist pairing session:", error);
-	}
-}
-
-function clearPersistedPhoneCameraSession(): void {
-	try {
-		fs.rmSync(PHONE_CAMERA_SESSION_PATH, { force: true });
-	} catch (error) {
-		console.warn("[phone-camera] Failed to clear saved pairing session:", error);
-	}
-}
 
 function clearFrameLivenessTimer(): void {
 	if (frameLivenessTimer) {
@@ -135,7 +89,6 @@ configurePhoneCameraBridgeSession({
 	getSession: () => ({
 		sessionId: phoneCameraState.sessionId,
 		pairingCode: phoneCameraState.pairingCode,
-		pairingUrl: phoneCameraState.pairingUrl,
 	}),
 	onConnect: ({ sessionId, pairingCode, remoteAddress }) => {
 		if (
@@ -243,10 +196,10 @@ export function registerPhoneCameraHandlers() {
 			typeof options?.reason === "string" && options.reason.trim().length > 0
 				? options.reason.trim()
 				: "selection";
-		const persistedSession = readPersistedPhoneCameraSession();
-		const sessionId = persistedSession?.sessionId ?? randomUUID();
-		const pairingCode = persistedSession?.pairingCode ?? buildPairingCode();
-		persistPhoneCameraSession({ sessionId, pairingCode });
+		// QR bearer credentials intentionally live only in memory. A restart or
+		// explicit forget invalidates every previously captured pairing URL.
+		const sessionId = randomUUID();
+		const pairingCode = buildPairingCode();
 		setPhoneCameraState({
 			active: true,
 			connected: false,
@@ -330,7 +283,6 @@ export function registerPhoneCameraHandlers() {
 
 	ipcMain.handle("recordly-phone-camera:forget", async () => {
 		clearFrameLivenessTimer();
-		clearPersistedPhoneCameraSession();
 		latestPhoneCameraFrame = null;
 		closePhoneCameraPairingWindow();
 		destroyPhoneCameraOverlayWindow();

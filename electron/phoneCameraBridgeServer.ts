@@ -703,7 +703,7 @@ export async function ensurePhoneCameraBridgeServer(): Promise<string> {
 		try {
 			const securePort = await new Promise<number>((resolve, reject) => {
 				secureServer.once("error", reject);
-				secureServer.listen(PHONE_CAMERA_HTTPS_PORT, "0.0.0.0", () => {
+				secureServer.listen(PHONE_CAMERA_HTTPS_PORT, lanAddress, () => {
 					const address = secureServer.address();
 					if (!address || typeof address === "string") {
 						reject(
@@ -716,7 +716,7 @@ export async function ensurePhoneCameraBridgeServer(): Promise<string> {
 			});
 			const setupPort = await new Promise<number>((resolve, reject) => {
 				setupServer.once("error", reject);
-				setupServer.listen(PHONE_CAMERA_SETUP_PORT, "0.0.0.0", () => {
+				setupServer.listen(PHONE_CAMERA_SETUP_PORT, lanAddress, () => {
 					const address = setupServer.address();
 					if (!address || typeof address === "string") {
 						reject(
