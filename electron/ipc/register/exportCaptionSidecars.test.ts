@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import os from "node:os";
+import * as atomicFile from "../atomicFile";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -57,7 +58,7 @@ describe("exportCaptionSidecars", () => {
 
 	it("returns a warning result instead of throwing when sidecar writes fail", async () => {
 		const writeFileSpy = vi
-			.spyOn(fs, "writeFile")
+			.spyOn(atomicFile, "atomicWriteFile")
 			.mockRejectedValueOnce(new Error("disk full"));
 
 		await expect(

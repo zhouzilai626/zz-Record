@@ -23,6 +23,7 @@ import {
 	cleanupNativeVideoExportSessions,
 	getSelectedSourceId,
 	killWindowsCaptureProcess,
+	createIpcCallerPolicy,
 	registerIpcHandlers,
 } from "./ipc/handlers";
 import { restorePhoneCameraPreviewIfConnected } from "./ipc/register/phoneCamera";
@@ -1015,6 +1016,7 @@ app.whenReady().then(async () => {
 				restoreWindowSafely(mainWindow);
 			}
 		},
+		createIpcCallerPolicy(getRendererSecurityContext()),
 	);
 
 	if (IS_SMOKE_EXPORT || process.env.RECORDLY_DEV_OPEN_RECORDING_INPUT) {

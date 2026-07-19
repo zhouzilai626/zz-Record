@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
 	canRequestMediaPermission,
 	getRendererWindowType,
+	isTrustedIpcSenderForWindowTypes,
 	isTrustedRendererUrl,
 } from "./windowSecurity";
 
@@ -104,6 +105,30 @@ describe("renderer window security", () => {
 				"media",
 				developmentContext,
 				false,
+			),
+		).toBe(false);
+	});
+
+	it("only permits trusted renderer roles for sensitive IPC", () => {
+		expect(
+			isTrustedIpcSenderForWindowTypes(
+				"http://localhost:5173/?windowType=editor",
+				developmentContext,
+				["editor"],
+			),
+		).toBe(true);
+		expect(
+			isTrustedIpcSenderForWindowTypes(
+				"http://localhost:5173/?windowType=hud-overlay",
+				developmentContext,
+				["editor"],
+			),
+		).toBe(false);
+		expect(
+			isTrustedIpcSenderForWindowTypes(
+				"https://example.com/?windowType=editor",
+				developmentContext,
+				["editor"],
 			),
 		).toBe(false);
 	});

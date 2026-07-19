@@ -1,5 +1,9 @@
-import { BrowserWindow } from "electron";
+import { BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import { registerAssetHandlers } from "./register/assets";
+import {
+	isTrustedIpcSenderForWindowTypes,
+	type RendererSecurityContext,
+} from "../windowSecurity";
 import { registerCaptionHandlers } from "./register/captions";
 import { registerExportHandlers } from "./register/export";
 import { registerPermissionHandlers } from "./register/permissions";
@@ -51,12 +55,33 @@ export function killWindowsCaptureProcess() {
 	}
 }
 
+export type IpcCallerPolicy = {
+	allows: (
+		event: IpcMainInvokeEvent,
+		allowedWindowTypes: readonly string[],
+	) => boolean;
+};
+
+export function createIpcCallerPolicy(
+	context: RendererSecurityContext,
+): IpcCallerPolicy {
+	return {
+		allows: (event, allowedWindowTypes) =>
+			isTrustedIpcSenderForWindowTypes(
+				event.sender.getURL(),
+				context,
+				allowedWindowTypes,
+			),
+	};
+}
+
 export function registerIpcHandlers(
 	createEditorWindow: () => void,
 	createSourceSelectorWindow: () => BrowserWindow,
 	_getMainWindow: () => BrowserWindow | null,
 	getSourceSelectorWindow: () => BrowserWindow | null,
 	onRecordingStateChange?: (recording: boolean, sourceName: string) => void,
+	callerPolicy?: IpcCallerPolicy,
 ) {
 	registerSourceHandlers({
 		createEditorWindow,
@@ -65,7 +90,7 @@ export function registerIpcHandlers(
 	});
 	registerRecordingHandlers(onRecordingStateChange);
 	registerPermissionHandlers();
-	registerAssetHandlers();
+	registerAssetHandlers(callerPolicy);
 	registerExportHandlers();
 	registerCaptionHandlers();
 	registerProjectHandlers();

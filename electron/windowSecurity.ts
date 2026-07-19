@@ -70,6 +70,17 @@ export function getRendererWindowType(value: string): string | null {
 	}
 }
 
+export function isTrustedIpcSenderForWindowTypes(
+	value: string,
+	context: RendererSecurityContext,
+	allowedWindowTypes: readonly string[],
+): boolean {
+	return (
+		isTrustedRendererUrl(value, context) &&
+		allowedWindowTypes.includes(getRendererWindowType(value) ?? "")
+	);
+}
+
 export function canRequestMediaPermission(
 	value: string,
 	permission: string,

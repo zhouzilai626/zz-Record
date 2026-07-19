@@ -14,6 +14,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { app } from "electron";
 import type { ExtensionInfo, ExtensionManifest, ExtensionStatus } from "./extensionTypes";
+import { atomicWriteFile } from "../ipc/atomicFile";
 
 const EXTENSIONS_DIR_NAME = "extensions";
 const MANIFEST_FILE_NAME = "recordly-extension.json";
@@ -79,22 +80,26 @@ async function writePersistedExtensionStatuses(
 ): Promise<void> {
 	const stateFile = getExtensionStateFilePath();
 	await fs.mkdir(path.dirname(stateFile), { recursive: true });
-	await fs.writeFile(stateFile, JSON.stringify(statuses, null, 2), "utf-8");
+	await atomicWriteFile(stateFile, JSON.stringify(statuses, null, 2));
 }
 
-async function updatePersistedExtensionStatus(
+let extensionStatusWriteQueue: Promise<void> = Promise.resolve();
+
+function updatePersistedExtensionStatus(
 	id: string,
 	status: PersistedExtensionStatus | null,
 ): Promise<void> {
-	const statuses = await readPersistedExtensionStatuses();
-
-	if (status) {
-		statuses[id] = status;
-	} else {
-		delete statuses[id];
-	}
-
-	await writePersistedExtensionStatuses(statuses);
+	const update = extensionStatusWriteQueue.then(async () => {
+		const statuses = await readPersistedExtensionStatuses();
+		if (status) {
+			statuses[id] = status;
+		} else {
+			delete statuses[id];
+		}
+		await writePersistedExtensionStatuses(statuses);
+	});
+	extensionStatusWriteQueue = update.catch(() => undefined);
+	return update;
 }
 
 /**

@@ -1,5 +1,5 @@
-import fs from "node:fs/promises";
 import path from "node:path";
+import { atomicWriteFile } from "../atomicFile";
 
 export type CaptionSidecarCue = {
 	startMs: number;
@@ -116,11 +116,11 @@ export async function writeCaptionSidecars(
 	const basePath = path.join(parsed.dir, parsed.name);
 
 	if (payload.format === "srt" || payload.format === "both") {
-		await fs.writeFile(`${basePath}.srt`, serializeSrt(payload.cues), "utf8");
+		await atomicWriteFile(`${basePath}.srt`, serializeSrt(payload.cues));
 	}
 
 	if (payload.format === "vtt" || payload.format === "both") {
-		await fs.writeFile(`${basePath}.vtt`, serializeVtt(payload.cues), "utf8");
+		await atomicWriteFile(`${basePath}.vtt`, serializeVtt(payload.cues));
 	}
 }
 

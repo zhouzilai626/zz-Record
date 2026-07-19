@@ -6,8 +6,14 @@ import { ipcMain } from "electron";
 import { USER_DATA_PATH } from "../../appPaths";
 import { getAssetRootPath, isAllowedLocalReadPath } from "../project/manager";
 import { normalizePath } from "../utils";
+import type { IpcCallerPolicy } from "../handlers";
 
-export function registerAssetHandlers() {
+const EDITOR_WINDOW_TYPES = ["editor"] as const;
+
+export function registerAssetHandlers(callerPolicy?: IpcCallerPolicy) {
+	const isEditorCaller = (event: Electron.IpcMainInvokeEvent) =>
+		!callerPolicy || callerPolicy.allows(event, EDITOR_WINDOW_TYPES);
+
 	async function resolveReadableLocalFilePath(filePath: string) {
 		const normalizedPath = normalizePath(filePath);
 		const resolvedPath = await fs.realpath(normalizedPath).catch(() => normalizedPath);
@@ -25,54 +31,48 @@ export function registerAssetHandlers() {
 	const thumbCacheDir = path.join(USER_DATA_PATH, "wallpaper-thumbs");
 	let thumbGenerationQueue: Promise<void> = Promise.resolve();
 
-	ipcMain.handle("generate-wallpaper-thumbnail", async (_, filePath: string) => {
+	ipcMain.handle("generate-wallpaper-thumbnail", async (event, filePath: string) => {
+		if (!isEditorCaller(event)) {
+			return { success: false, error: "Unauthorized IPC caller" };
+		}
 		try {
 			const resolved = await resolveReadableLocalFilePath(filePath);
+			if (!isAllowedLocalReadPath(resolved)) {
+				throw new Error("Local file path has not been approved for this session");
+			}
 
-			// Deterministic cache key from file path + mtime
 			const stat = await fs.stat(resolved);
 			const cacheKey = Buffer.from(`${resolved}:${stat.mtimeMs}`).toString("base64url");
 			const thumbPath = path.join(thumbCacheDir, `${cacheKey}.jpg`);
-
-			// Return cached thumbnail if it exists (no queue needed)
 			if (existsSync(thumbPath)) {
-				const data = await fs.readFile(thumbPath);
-				return { success: true, data };
+				return { success: true, data: await fs.readFile(thumbPath) };
 			}
 
-			// Serialize nativeImage operations to avoid OOM from concurrent full-res decodes
 			let jpegData: Buffer;
 			const generation = thumbGenerationQueue.then(async () => {
 				const { nativeImage } = await import("electron");
 				const img = nativeImage.createFromPath(resolved);
-				if (img.isEmpty()) {
-					throw new Error("Failed to load image");
-				}
+				if (img.isEmpty()) throw new Error("Failed to load image");
 				const { width, height } = img.getSize();
 				const scale = THUMB_SIZE / Math.min(width, height);
-				const resized = img.resize({
+				jpegData = img.resize({
 					width: Math.round(width * scale),
 					height: Math.round(height * scale),
 					quality: "good",
-				});
-				jpegData = resized.toJPEG(70);
-
-				// Cache to disk
+				}).toJPEG(70);
 				await fs.mkdir(thumbCacheDir, { recursive: true });
 				await fs.writeFile(thumbPath, jpegData);
 			});
-			// Keep the queue moving even if one fails
 			thumbGenerationQueue = generation.catch(() => undefined);
 			await generation;
-
 			return { success: true, data: jpegData! };
 		} catch (error) {
 			return { success: false, error: String(error) };
 		}
 	});
 
-	// Return base path for assets so renderer can resolve file:// paths in production
-	ipcMain.handle("get-asset-base-path", () => {
+	ipcMain.handle("get-asset-base-path", (event) => {
+		if (!isEditorCaller(event)) return null;
 		try {
 			const assetPath = getAssetRootPath();
 			return pathToFileURL(`${assetPath}${path.sep}`).toString();
@@ -82,12 +82,14 @@ export function registerAssetHandlers() {
 		}
 	});
 
-	ipcMain.handle("list-asset-directory", async (_, relativeDir: string) => {
+	ipcMain.handle("list-asset-directory", async (event, relativeDir: string) => {
+		if (!isEditorCaller(event)) {
+			return { success: false, error: "Unauthorized IPC caller" };
+		}
 		try {
 			const normalizedRelativeDir = String(relativeDir ?? "")
 				.replace(/\\/g, "/")
 				.replace(/^\/+/, "");
-
 			const assetRootPath = path.resolve(getAssetRootPath());
 			const targetDirPath = path.resolve(assetRootPath, normalizedRelativeDir);
 			if (
@@ -96,33 +98,31 @@ export function registerAssetHandlers() {
 			) {
 				return { success: false, error: "Invalid asset directory" };
 			}
-
 			const entries = await fs.readdir(targetDirPath, { withFileTypes: true });
-			const files = entries
-				.filter((entry) => entry.isFile())
-				.map((entry) => entry.name)
-				.sort(new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare);
-
-			return { success: true, files };
+			return {
+				success: true,
+				files: entries.filter((entry) => entry.isFile()).map((entry) => entry.name)
+					.sort(new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare),
+			};
 		} catch (error) {
 			console.error("Failed to list asset directory:", error);
 			return { success: false, error: String(error) };
 		}
 	});
 
-	ipcMain.handle("read-local-file", async (_, filePath: string) => {
+	ipcMain.handle("read-local-file", async (event, filePath: string) => {
+		if (!isEditorCaller(event)) {
+			return { success: false, error: "Unauthorized IPC caller" };
+		}
 		try {
 			if (typeof filePath !== "string" || !filePath.trim()) {
 				throw new Error("A readable local file path is required");
 			}
-
 			const resolved = await resolveReadableLocalFilePath(filePath);
 			if (!isAllowedLocalReadPath(resolved)) {
 				throw new Error("Local file path has not been approved for this session");
 			}
-
-			const data = await fs.readFile(resolved);
-			return { success: true, data };
+			return { success: true, data: await fs.readFile(resolved) };
 		} catch (error) {
 			console.error("Failed to read local file:", error);
 			return { success: false, error: String(error) };
