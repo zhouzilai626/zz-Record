@@ -836,7 +836,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 				totalBytes?: number;
 				remainingBytes?: number;
 				bytesPerSecond?: number;
-				primaryAction?: "install-and-restart" | "retry-check";
+				primaryAction?: "download" | "install-and-restart" | "retry-check";
 			} | null,
 		) => void,
 	) => {
@@ -853,7 +853,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 				totalBytes?: number;
 				remainingBytes?: number;
 				bytesPerSecond?: number;
-				primaryAction?: "install-and-restart" | "retry-check";
+				primaryAction?: "download" | "install-and-restart" | "retry-check";
 			} | null,
 		) => callback(payload);
 		ipcRenderer.on("update-toast-state", listener);

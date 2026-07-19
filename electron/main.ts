@@ -43,7 +43,11 @@ import {
 	setupAutoUpdates,
 	skipAvailableUpdateVersion,
 } from "./updater";
-import { canRequestMediaPermission, isTrustedRendererUrl } from "./windowSecurity";
+import {
+	canRequestMediaPermission,
+	isTrustedIpcSenderForWindowTypes,
+	isTrustedRendererUrl,
+} from "./windowSecurity";
 import {
 	createEditorWindow,
 	createHudOverlayWindow,
@@ -141,6 +145,7 @@ let sourceSelectorWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let trayContextMenu: Menu | null = null;
 let selectedSourceName = "";
+let recordingIsActive = false;
 let editorHasUnsavedChanges = false;
 let isForceClosing = false;
 let isCreatingMainWindow = false;
@@ -620,16 +625,19 @@ function sendUpdateToastToWindows(channel: "update-toast-state", payload: unknow
 			switch (updatePayload.phase) {
 				case "available":
 					void downloadAvailableUpdate(sendUpdateToastToWindows, {
-						installAfterDownload: true,
+						installAfterDownload: false,
 					});
 					break;
 				case "ready":
-					installDownloadedUpdateNow(sendUpdateToastToWindows);
+					installDownloadedUpdateNow(sendUpdateToastToWindows, {
+						canInstall: !recordingIsActive,
+						blockedMessage: "当前正在录制，请先结束录制，再安装更新。",
+					});
 					break;
 				case "error":
 					if (updatePayload.primaryAction === "install-and-restart") {
 						void downloadAvailableUpdate(sendUpdateToastToWindows, {
-							installAfterDownload: true,
+							installAfterDownload: false,
 						});
 					} else {
 						void checkForAppUpdates(getUpdateDialogWindow, { manual: true });
@@ -683,6 +691,23 @@ function sendUpdateToastToWindows(channel: "update-toast-state", payload: unknow
 	return true;
 }
 
+function isTrustedUpdateIpcSender(event: Electron.IpcMainInvokeEvent) {
+	return isTrustedIpcSenderForWindowTypes(event.sender.getURL(), getRendererSecurityContext(), [
+		"hud-overlay",
+		"editor",
+		"update-toast",
+	]);
+}
+
+function rejectUntrustedUpdateIpc(event: Electron.IpcMainInvokeEvent) {
+	if (isTrustedUpdateIpcSender(event)) {
+		return null;
+	}
+
+	console.warn("[security] Rejected update IPC from untrusted renderer:", event.sender.getURL());
+	return { success: false, message: "此窗口无权管理应用更新。" };
+}
+
 function getUpdateDialogWindow() {
 	const focusedWindow = BrowserWindow.getFocusedWindow();
 	if (focusedWindow && !focusedWindow.isDestroyed()) {
@@ -696,42 +721,63 @@ function getUpdateDialogWindow() {
 	return getHudOverlayWindow();
 }
 
-ipcMain.handle("install-downloaded-update", () => {
-	installDownloadedUpdateNow(sendUpdateToastToWindows);
-	return { success: true };
-});
-
-ipcMain.handle("download-available-update", (_event, installAfterDownload?: boolean) => {
-	return downloadAvailableUpdate(sendUpdateToastToWindows, {
-		installAfterDownload: Boolean(installAfterDownload),
+ipcMain.handle("install-downloaded-update", (event) => {
+	const rejected = rejectUntrustedUpdateIpc(event);
+	if (rejected) return rejected;
+	return installDownloadedUpdateNow(sendUpdateToastToWindows, {
+		canInstall: !recordingIsActive,
+		blockedMessage: "当前正在录制，请先结束录制，再安装更新。",
 	});
 });
 
-ipcMain.handle("defer-downloaded-update", (_event, delayMs?: number) => {
+ipcMain.handle("download-available-update", (event, installAfterDownload?: boolean) => {
+	const rejected = rejectUntrustedUpdateIpc(event);
+	if (rejected) return rejected;
+	return downloadAvailableUpdate(sendUpdateToastToWindows, {
+		// Downloading is safe during a recording; installation remains blocked until it ends.
+		installAfterDownload: Boolean(installAfterDownload) && !recordingIsActive,
+	});
+});
+
+ipcMain.handle("defer-downloaded-update", (event, delayMs?: number) => {
+	const rejected = rejectUntrustedUpdateIpc(event);
+	if (rejected) return rejected;
 	return deferUpdateReminder(getUpdateDialogWindow, sendUpdateToastToWindows, delayMs);
 });
 
-ipcMain.handle("dismiss-update-toast", () => {
+ipcMain.handle("dismiss-update-toast", (event) => {
+	const rejected = rejectUntrustedUpdateIpc(event);
+	if (rejected) return rejected;
 	return dismissUpdateToast(getUpdateDialogWindow, sendUpdateToastToWindows);
 });
 
-ipcMain.handle("skip-update-version", () => {
+ipcMain.handle("skip-update-version", (event) => {
+	const rejected = rejectUntrustedUpdateIpc(event);
+	if (rejected) return rejected;
 	return skipAvailableUpdateVersion(sendUpdateToastToWindows);
 });
 
-ipcMain.handle("get-current-update-toast-payload", () => {
+ipcMain.handle("get-current-update-toast-payload", (event) => {
+	if (!isTrustedUpdateIpcSender(event)) return null;
 	return getCurrentUpdateToastPayload();
 });
 
-ipcMain.handle("get-update-status-summary", () => {
+ipcMain.handle("get-update-status-summary", (event) => {
+	if (!isTrustedUpdateIpcSender(event)) {
+		return { status: "idle", currentVersion: app.getVersion(), availableVersion: null };
+	}
 	return getUpdateStatusSummary();
 });
 
-ipcMain.handle("preview-update-toast", () => {
+ipcMain.handle("preview-update-toast", (event) => {
+	const rejected = rejectUntrustedUpdateIpc(event);
+	if (rejected) return rejected;
 	return { success: previewUpdateToast(sendUpdateToastToWindows) };
 });
 
-ipcMain.handle("check-for-app-updates", async () => {
+ipcMain.handle("check-for-app-updates", async (event) => {
+	const rejected = rejectUntrustedUpdateIpc(event);
+	if (rejected) return rejected;
 	await checkForAppUpdates(getUpdateDialogWindow, { manual: true });
 	return { success: true, logPath: getUpdaterLogPath() };
 });
@@ -1005,6 +1051,7 @@ app.whenReady().then(async () => {
 		() => mainWindow,
 		() => sourceSelectorWindow,
 		(recording: boolean, sourceName: string) => {
+			recordingIsActive = recording;
 			selectedSourceName = sourceName;
 			setHudOverlayRecordingActive(recording);
 			if (!tray) createTray();
@@ -1037,7 +1084,9 @@ app.whenReady().then(async () => {
 	}
 
 	createWindow();
-	setupAutoUpdates(getUpdateDialogWindow, sendUpdateToastToWindows);
+	setupAutoUpdates(getUpdateDialogWindow, sendUpdateToastToWindows, {
+		canInstallDownloadedUpdate: () => !recordingIsActive,
+	});
 
 	// Register the display media handler so that renderer's getDisplayMedia()
 	// calls land on the pre-selected source without showing a system picker.

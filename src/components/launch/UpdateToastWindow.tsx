@@ -17,7 +17,7 @@ type UpdateToastPayload = {
 	totalBytes?: number;
 	remainingBytes?: number;
 	bytesPerSecond?: number;
-	primaryAction?: "install-and-restart" | "retry-check";
+	primaryAction?: "download" | "install-and-restart" | "retry-check";
 };
 
 const DEFAULT_REMINDER_DELAY_MS = 3 * 60 * 60 * 1000;
@@ -61,7 +61,13 @@ function getToastTitle(payload: UpdateToastPayload) {
 }
 
 function getPrimaryButtonLabel(payload: UpdateToastPayload) {
-	return payload.primaryAction === "retry-check" ? "重试" : "安装并重启";
+	if (payload.primaryAction === "retry-check") {
+		return "重试";
+	}
+	if (payload.primaryAction === "download") {
+		return "下载更新";
+	}
+	return "安装并重启";
 }
 
 function getPhaseIcon(payload: UpdateToastPayload) {
@@ -239,11 +245,16 @@ export function UpdateToastWindow() {
 		}
 
 		if (payload.phase === "ready") {
-			await window.electronAPI.installDownloadedUpdate();
+			const result = await window.electronAPI.installDownloadedUpdate();
+			if (!result.success && result.message) {
+				setPayload((current) =>
+					current ? { ...current, detail: result.message ?? current.detail } : current,
+				);
+			}
 			return;
 		}
 
-		await window.electronAPI.downloadAvailableUpdate(true);
+		await window.electronAPI.downloadAvailableUpdate(false);
 	};
 
 	const handleLater = async () => {

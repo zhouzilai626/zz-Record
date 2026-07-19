@@ -23,6 +23,9 @@ npm run release:create -- --tag v1.4.5 --title "ZZ Record v1.4.5" --notes-file .
 - 构建 Windows NSIS 安装包
 - 生成 `latest.yml` 与 `SHA256SUMS.txt`
 - 上传安装包和更新所需附件到对应 Release
+- 供已安装旧版本的客户端发现、下载并验证更新
+
+发布完成后，按 [`docs/windows-auto-update.md`](docs/windows-auto-update.md) 在独立的旧版本 Windows 环境完成一次真实升级验收；仅构建成功不足以证明自动更新链路可用。注意：GitHub 预发布不等同于稳定版自动更新验收，稳定版旧客户端应升级到较新的公开正式 Release，或使用单独配置的测试更新通道。
 
 预发布版本使用标准语义化版本标签，例如：
 

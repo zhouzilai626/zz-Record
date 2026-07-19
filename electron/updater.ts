@@ -46,7 +46,7 @@ export interface UpdateToastPayload {
 	totalBytes?: number;
 	remainingBytes?: number;
 	bytesPerSecond?: number;
-	primaryAction?: "install-and-restart" | "retry-check";
+	primaryAction?: "download" | "install-and-restart" | "retry-check";
 }
 
 interface DownloadProgressSnapshot {
@@ -74,6 +74,7 @@ let downloadInProgress = false;
 let downloadToastDismissed = false;
 let skippedVersion: string | null = null;
 let installAfterDownloadRequested = false;
+let canInstallDownloadedUpdate: () => boolean = () => true;
 let updateStatusSummary: UpdateStatusSummary = {
 	status: "idle",
 	currentVersion: app.getVersion(),
@@ -175,9 +176,9 @@ function createAvailableUpdateToastPayload(version: string): UpdateToastPayload 
 	return {
 		version,
 		phase: "available",
-		detail: "Install the latest version now, or remind yourself to come back to it later.",
+		detail: "发现新版本。下载完成后，你可以选择立即安装或稍后安装。",
 		delayMs: UPDATE_REMINDER_DELAY_MS,
-		primaryAction: "install-and-restart",
+		primaryAction: "download",
 	};
 }
 
@@ -212,10 +213,10 @@ function createDownloadingUpdateToastPayload(
 		phase: "downloading",
 		detail:
 			normalizedProgress >= 100
-				? "正在完成更新下载，安装程序准备好后 ZZ Record 将自动重启。"
+				? "正在完成更新下载。下载完成后，你可以选择何时安装。"
 				: remainingMb !== null
-					? `ZZ Record 重启前还需下载 ${remainingMb.toFixed(1)} MB。`
-					: "正在下载更新，完成后 ZZ Record 将自动重启。",
+					? `正在下载更新，剩余约 ${remainingMb.toFixed(1)} MB。`
+					: "正在下载更新；完成前可继续使用应用。",
 		delayMs: UPDATE_REMINDER_DELAY_MS,
 		progressPercent: normalizedProgress,
 		transferredBytes,
@@ -230,7 +231,7 @@ function createDownloadedUpdateToastPayload(version: string): UpdateToastPayload
 	return {
 		version,
 		phase: "ready",
-		detail: "The update is ready. Install and restart now, or remind yourself later.",
+		detail: "更新已下载完成。你可以选择立即安装并重启，或稍后安装。",
 		delayMs: UPDATE_REMINDER_DELAY_MS,
 		primaryAction: "install-and-restart",
 	};
@@ -240,9 +241,9 @@ function createUpdateErrorToastPayload(version: string, error: unknown): UpdateT
 	return {
 		version,
 		phase: "error",
-		detail: `The update could not be downloaded. ${String(error)}`,
+		detail: `更新下载失败，当前版本仍可继续使用。请检查网络后重试。${String(error)}`,
 		delayMs: UPDATE_REMINDER_DELAY_MS,
-		primaryAction: "install-and-restart",
+		primaryAction: "retry-check",
 	};
 }
 
@@ -369,10 +370,28 @@ export function dismissUpdateToast(
 	return { success: true };
 }
 
-export function installDownloadedUpdateNow(sendToRenderer?: UpdateToastSender) {
+export function installDownloadedUpdateNow(
+	sendToRenderer?: UpdateToastSender,
+	options?: { canInstall?: boolean; blockedMessage?: string },
+) {
 	if (currentToastPayload?.isPreview) {
 		resetDevPreviewState(sendToRenderer);
-		return;
+		return { success: true };
+	}
+
+	if (!pendingDownloadedVersion) {
+		return { success: false, message: "没有已下载、可安装的更新。" };
+	}
+
+	if (options?.canInstall === false) {
+		const message = options.blockedMessage || "当前正在录制，请先结束录制，再安装更新。";
+		setUpdateStatusSummary({
+			status: "ready",
+			availableVersion: pendingDownloadedVersion,
+			detail: message,
+		});
+		writeUpdaterLog("Blocked update installation because the application is busy recording.");
+		return { success: false, message };
 	}
 
 	clearDeferredReminderTimer();
@@ -382,6 +401,7 @@ export function installDownloadedUpdateNow(sendToRenderer?: UpdateToastSender) {
 	setUpdateStatusSummary({ status: "ready", availableVersion: pendingDownloadedVersion });
 	writeUpdaterLog("Installing downloaded update.");
 	autoUpdater.quitAndInstall();
+	return { success: true };
 }
 
 export async function downloadAvailableUpdate(
@@ -525,15 +545,15 @@ async function showAvailableUpdateDialog(
 		type: "info",
 		title: "发现更新",
 		message: `ZZ Record ${version} 可更新。`,
-		detail: "现在安装并重启，或稍后提醒我。",
-		buttons: ["安装并重启", "稍后"],
+		detail: "下载完成后，你可以选择立即重启安装，或稍后再安装。",
+		buttons: ["下载更新", "稍后"],
 		defaultId: 0,
 		cancelId: 1,
 		noLink: true,
 	});
 
 	if (result.response === 0) {
-		await downloadAvailableUpdate(sendToRenderer, { installAfterDownload: true });
+		await downloadAvailableUpdate(sendToRenderer, { installAfterDownload: false });
 		return;
 	}
 
@@ -553,8 +573,8 @@ async function showDownloadedUpdateDialog(
 			? `ZZ Record ${version} 已可安装。`
 			: `ZZ Record ${version} 已下载完成。`,
 		detail: isPreview
-			? "Development preview of the native update prompt. No real update will be installed."
-			: "Install and restart now, or remind me later.",
+			? "开发预览：不会安装真实更新。"
+			: "更新已下载完成。你可以选择立即安装并重启，或稍后安装。",
 		buttons: ["安装并重启", "稍后"],
 		defaultId: 0,
 		cancelId: 1,
@@ -574,7 +594,9 @@ async function showDownloadedUpdateDialog(
 
 		clearDeferredReminderTimer();
 		setImmediate(() => {
-			installDownloadedUpdateNow();
+			installDownloadedUpdateNow(undefined, {
+				canInstall: canInstallDownloadedUpdate(),
+			});
 		});
 		return;
 	}
@@ -638,7 +660,9 @@ export async function checkForAppUpdates(
 export function setupAutoUpdates(
 	getMainWindow: () => BrowserWindow | null,
 	sendToRenderer: UpdateToastSender,
+	options?: { canInstallDownloadedUpdate?: () => boolean },
 ) {
+	canInstallDownloadedUpdate = options?.canInstallDownloadedUpdate ?? (() => true);
 	if (updaterInitialized) {
 		return;
 	}
@@ -784,7 +808,9 @@ export function setupAutoUpdates(
 			clearVisibleUpdateToast(sendToRenderer);
 			writeUpdaterLog(`Auto-installing downloaded update: version=${info.version}`);
 			setImmediate(() => {
-				installDownloadedUpdateNow(sendToRenderer);
+				installDownloadedUpdateNow(sendToRenderer, {
+					canInstall: canInstallDownloadedUpdate(),
+				});
 			});
 			return;
 		}

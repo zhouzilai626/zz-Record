@@ -54,7 +54,7 @@ interface UpdateToastState {
 	totalBytes?: number;
 	remainingBytes?: number;
 	bytesPerSecond?: number;
-	primaryAction?: "install-and-restart" | "retry-check";
+	primaryAction?: "download" | "install-and-restart" | "retry-check";
 }
 
 interface UpdateStatusSummary {
@@ -798,7 +798,7 @@ interface Window {
 			message?: string;
 			error?: string;
 		}>;
-		installDownloadedUpdate: () => Promise<{ success: boolean }>;
+		installDownloadedUpdate: () => Promise<{ success: boolean; message?: string }>;
 		downloadAvailableUpdate: (
 			installAfterDownload?: boolean,
 		) => Promise<{ success: boolean; message?: string }>;
