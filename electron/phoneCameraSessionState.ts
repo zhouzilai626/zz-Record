@@ -1,26 +1,31 @@
-import { PHONE_CAMERA_DEVICE_ID, type PhoneCameraState } from "../src/lib/phoneCamera";
+import {
+  PHONE_CAMERA_DEVICE_ID,
+  type PhoneCameraState,
+} from "../src/lib/phoneCamera";
 
 export function shouldShowPhoneCameraPairing(
-	reason: string | undefined,
-	connected: boolean,
+  reason: string | undefined,
+  connected: boolean,
 ): boolean {
-	return reason === "selection" && !connected;
+  return reason === "selection" && !connected;
 }
 
 export function createInactivePhoneCameraState(
-	current: Pick<PhoneCameraState, "deviceId">,
+  current: Pick<PhoneCameraState, "deviceId">,
 ): PhoneCameraState {
-	return {
-		active: false,
-		connected: false,
-		status: "inactive",
-		deviceId: current.deviceId || PHONE_CAMERA_DEVICE_ID,
-		startedAtMs: null,
-		lastFrameAtMs: null,
-		message: "Phone pairing was forgotten. Select Phone Camera to pair again.",
-		error: undefined,
-		sessionId: undefined,
-		pairingCode: undefined,
-		pairingUrl: undefined,
-	};
+  return {
+    active: false,
+    connected: false,
+    status: "inactive",
+    deviceId: current.deviceId || PHONE_CAMERA_DEVICE_ID,
+    startedAtMs: null,
+    lastFrameAtMs: null,
+    message: "Phone pairing was forgotten. Select Phone Camera to pair again.",
+    error: undefined,
+    sessionId: undefined,
+    pairingToken: undefined,
+    pairingExpiresAtMs: undefined,
+    caFingerprint: undefined,
+    pairingUrl: undefined,
+  };
 }

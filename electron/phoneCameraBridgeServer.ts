@@ -1,200 +1,317 @@
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import os from "node:os";
 import path from "node:path";
 import forge from "node-forge";
 import { USER_DATA_PATH } from "./appPaths";
 import { choosePreferredLanAddress } from "./phoneCameraLanAddress";
-import { RequestBodyTooLargeError, readJsonBody } from "./phoneCameraRequestLimits";
+import {
+  RequestBodyTooLargeError,
+  readJsonBody,
+} from "./phoneCameraRequestLimits";
 
 let bridgeBaseUrl: string | null = null;
 let bridgeSetupBaseUrl: string | null = null;
+let bridgeCaFingerprint: string | null = null;
 let bridgeStartPromise: Promise<string> | null = null;
-let currentSessionResolver:
-	| (() => {
-			sessionId?: string;
-			pairingCode?: string;
-			pairingUrl?: string;
-	  })
-	| null = null;
+type PhoneCameraSession = {
+  sessionId?: string;
+  pairingToken?: string;
+  pairingExpiresAtMs?: number;
+};
+let currentSessionResolver: (() => PhoneCameraSession) | null = null;
 let connectCallback:
-	| ((payload: {
-			sessionId: string;
-			pairingCode: string;
-			remoteAddress?: string | null;
-	  }) => boolean)
-	| null = null;
+  | ((payload: {
+      sessionId: string;
+      pairingToken: string;
+      remoteAddress?: string | null;
+    }) => boolean)
+  | null = null;
 let frameCallback:
-	| ((payload: {
-			sessionId: string;
-			pairingCode: string;
-			frameDataUrl: string;
-			width?: number;
-			height?: number;
-			capturedAtMs?: number;
-			remoteAddress?: string | null;
-	  }) => boolean)
-	| null = null;
+  | ((payload: {
+      sessionId: string;
+      pairingToken: string;
+      frameDataUrl: string;
+      width?: number;
+      height?: number;
+      capturedAtMs?: number;
+      remoteAddress?: string | null;
+    }) => boolean)
+  | null = null;
 
 const PHONE_CAMERA_HTTPS_PORT = 17885;
 const PHONE_CAMERA_SETUP_PORT = 17886;
 const PHONE_CAMERA_CONNECT_BODY_MAX_BYTES = 16 * 1024;
 const PHONE_CAMERA_FRAME_BODY_MAX_BYTES = 2 * 1024 * 1024;
-const PHONE_CAMERA_FRAME_DATA_URL_MAX_LENGTH = PHONE_CAMERA_FRAME_BODY_MAX_BYTES - 16 * 1024;
+const PHONE_CAMERA_FRAME_DATA_URL_MAX_LENGTH =
+  PHONE_CAMERA_FRAME_BODY_MAX_BYTES - 16 * 1024;
 const PHONE_CAMERA_FRAME_MAX_DIMENSION = 1_920;
 const PHONE_CAMERA_FRAME_MAX_PIXELS = 1_920 * 1_080;
+export const MAX_CA_DOWNLOAD_TICKETS_PER_SESSION = 3;
 
-function getPreferredLanAddress(): string {
-	return choosePreferredLanAddress(os.networkInterfaces());
+type CaDownloadTicket = { sessionId: string; expiresAtMs: number };
+
+/** Keeps short-lived CA download capabilities scoped to one pairing session. */
+export class PhoneCameraCaTicketStore {
+  private readonly tickets = new Map<string, CaDownloadTicket>();
+  private readonly attemptsBySession = new Map<string, number>();
+
+  issue(sessionId: string, expiresAtMs: number): string | null {
+    const used = this.attemptsBySession.get(sessionId) ?? 0;
+    if (used >= MAX_CA_DOWNLOAD_TICKETS_PER_SESSION) return null;
+    const ticket = randomBytes(16).toString("base64url");
+    this.tickets.set(ticket, { sessionId, expiresAtMs });
+    this.attemptsBySession.set(sessionId, used + 1);
+    return ticket;
+  }
+
+  consume(ticket: string, sessionId: string, now = Date.now()): boolean {
+    const issued = this.tickets.get(ticket);
+    if (!issued || issued.sessionId !== sessionId || issued.expiresAtMs <= now) {
+      return false;
+    }
+    this.tickets.delete(ticket);
+    return true;
+  }
 }
 
-const PHONE_CAMERA_CERT_DIR = path.join(USER_DATA_PATH, "phone-camera-certificates");
-const PHONE_CAMERA_CA_CERT_PATH = path.join(PHONE_CAMERA_CERT_DIR, "zz-record-local-ca.cer");
-const PHONE_CAMERA_CA_KEY_PATH = path.join(PHONE_CAMERA_CERT_DIR, "zz-record-local-ca-key.pem");
-const PHONE_CAMERA_CA_PEM_PATH = path.join(PHONE_CAMERA_CERT_DIR, "zz-record-local-ca.pem");
-const PHONE_CAMERA_SERVER_CERT_PATH = path.join(PHONE_CAMERA_CERT_DIR, "phone-camera-server.pem");
+const caDownloadTickets = new PhoneCameraCaTicketStore();
+
+export const PHONE_CAMERA_SECURITY_HEADERS = {
+  "Cache-Control": "no-store",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Content-Security-Policy": "frame-ancestors 'none'; base-uri 'none'",
+};
+
+function getPreferredLanAddress(): string {
+  return choosePreferredLanAddress(os.networkInterfaces());
+}
+
+const PHONE_CAMERA_CERT_DIR = path.join(
+  USER_DATA_PATH,
+  "phone-camera-certificates",
+);
+const PHONE_CAMERA_CA_CERT_PATH = path.join(
+  PHONE_CAMERA_CERT_DIR,
+  "zz-record-local-ca.cer",
+);
+const PHONE_CAMERA_CA_KEY_PATH = path.join(
+  PHONE_CAMERA_CERT_DIR,
+  "zz-record-local-ca-key.pem",
+);
+const PHONE_CAMERA_CA_PEM_PATH = path.join(
+  PHONE_CAMERA_CERT_DIR,
+  "zz-record-local-ca.pem",
+);
+const PHONE_CAMERA_SERVER_CERT_PATH = path.join(
+  PHONE_CAMERA_CERT_DIR,
+  "phone-camera-server.pem",
+);
 const PHONE_CAMERA_SERVER_KEY_PATH = path.join(
-	PHONE_CAMERA_CERT_DIR,
-	"phone-camera-server-key.pem",
+  PHONE_CAMERA_CERT_DIR,
+  "phone-camera-server-key.pem",
 );
 const PHONE_CAMERA_SERVER_METADATA_PATH = path.join(
-	PHONE_CAMERA_CERT_DIR,
-	"phone-camera-server.json",
+  PHONE_CAMERA_CERT_DIR,
+  "phone-camera-server.json",
 );
 
 type CertificateAuthority = {
-	certificate: forge.pki.Certificate;
-	privateKey: forge.pki.rsa.PrivateKey;
+  certificate: forge.pki.Certificate;
+  privateKey: forge.pki.rsa.PrivateKey;
 };
 
 function createCertificateSerialNumber(): string {
-	return forge.util.bytesToHex(forge.random.getBytesSync(16));
+  return forge.util.bytesToHex(forge.random.getBytesSync(16));
 }
 
-function setCertificateValidity(certificate: forge.pki.Certificate, years: number): void {
-	const now = new Date();
-	certificate.validity.notBefore = new Date(now.getTime() - 60_000);
-	certificate.validity.notAfter = new Date(now);
-	certificate.validity.notAfter.setFullYear(now.getFullYear() + years);
+function setCertificateValidity(
+  certificate: forge.pki.Certificate,
+  years: number,
+): void {
+  const now = new Date();
+  certificate.validity.notBefore = new Date(now.getTime() - 60_000);
+  certificate.validity.notAfter = new Date(now);
+  certificate.validity.notAfter.setFullYear(now.getFullYear() + years);
+}
+
+function getCertificateSha256Fingerprint(
+  certificate: forge.pki.Certificate,
+): string {
+  const der = Buffer.from(
+    forge.asn1.toDer(forge.pki.certificateToAsn1(certificate)).getBytes(),
+    "binary",
+  );
+  return createHash("sha256")
+    .update(der)
+    .digest("hex")
+    .toUpperCase()
+    .match(/.{1,2}/g)!
+    .join(":");
+}
+
+function isValidSession(sessionId: string, pairingToken: string): boolean {
+  const session = currentSessionResolver?.();
+  if (
+    !session?.sessionId ||
+    !session.pairingToken ||
+    !session.pairingExpiresAtMs ||
+    session.pairingExpiresAtMs <= Date.now() ||
+    session.sessionId !== sessionId
+  )
+    return false;
+  const actual = Buffer.from(session.pairingToken);
+  const supplied = Buffer.from(pairingToken);
+  return actual.length === supplied.length && timingSafeEqual(actual, supplied);
 }
 
 function loadOrCreatePhoneCameraCertificateAuthority(): CertificateAuthority {
-	fs.mkdirSync(PHONE_CAMERA_CERT_DIR, { recursive: true });
+  fs.mkdirSync(PHONE_CAMERA_CERT_DIR, { recursive: true });
 
-	try {
-		if (fs.existsSync(PHONE_CAMERA_CA_PEM_PATH) && fs.existsSync(PHONE_CAMERA_CA_KEY_PATH)) {
-			return {
-				certificate: forge.pki.certificateFromPem(
-					fs.readFileSync(PHONE_CAMERA_CA_PEM_PATH, "utf8"),
-				),
-				privateKey: forge.pki.privateKeyFromPem(
-					fs.readFileSync(PHONE_CAMERA_CA_KEY_PATH, "utf8"),
-				),
-			};
-		}
-	} catch {
-		// Regenerate a locally scoped CA if its persisted material is unreadable.
-	}
+  try {
+    if (
+      fs.existsSync(PHONE_CAMERA_CA_PEM_PATH) &&
+      fs.existsSync(PHONE_CAMERA_CA_KEY_PATH)
+    ) {
+      return {
+        certificate: forge.pki.certificateFromPem(
+          fs.readFileSync(PHONE_CAMERA_CA_PEM_PATH, "utf8"),
+        ),
+        privateKey: forge.pki.privateKeyFromPem(
+          fs.readFileSync(PHONE_CAMERA_CA_KEY_PATH, "utf8"),
+        ),
+      };
+    }
+  } catch {
+    // Regenerate a locally scoped CA if its persisted material is unreadable.
+  }
 
-	const keys = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 });
-	const certificate = forge.pki.createCertificate();
-	certificate.publicKey = keys.publicKey;
-	certificate.serialNumber = createCertificateSerialNumber();
-	setCertificateValidity(certificate, 10);
-	const subject = [
-		{ name: "commonName", value: "ZZ Record Local Camera CA" },
-		{ name: "organizationName", value: "ZZ Record" },
-	];
-	certificate.setSubject(subject);
-	certificate.setIssuer(subject);
-	certificate.setExtensions([
-		{ name: "basicConstraints", critical: true, cA: true },
-		{
-			name: "keyUsage",
-			critical: true,
-			keyCertSign: true,
-			cRLSign: true,
-			digitalSignature: true,
-		},
-	]);
-	certificate.sign(keys.privateKey, forge.md.sha256.create());
+  const keys = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 });
+  const certificate = forge.pki.createCertificate();
+  certificate.publicKey = keys.publicKey;
+  certificate.serialNumber = createCertificateSerialNumber();
+  setCertificateValidity(certificate, 10);
+  const subject = [
+    { name: "commonName", value: "ZZ Record Local Camera CA" },
+    { name: "organizationName", value: "ZZ Record" },
+  ];
+  certificate.setSubject(subject);
+  certificate.setIssuer(subject);
+  certificate.setExtensions([
+    { name: "basicConstraints", critical: true, cA: true },
+    {
+      name: "keyUsage",
+      critical: true,
+      keyCertSign: true,
+      cRLSign: true,
+      digitalSignature: true,
+    },
+  ]);
+  certificate.sign(keys.privateKey, forge.md.sha256.create());
 
-	fs.writeFileSync(PHONE_CAMERA_CA_KEY_PATH, forge.pki.privateKeyToPem(keys.privateKey), "utf8");
-	fs.writeFileSync(PHONE_CAMERA_CA_PEM_PATH, forge.pki.certificateToPem(certificate), "utf8");
-	fs.writeFileSync(
-		PHONE_CAMERA_CA_CERT_PATH,
-		Buffer.from(
-			forge.asn1.toDer(forge.pki.certificateToAsn1(certificate)).getBytes(),
-			"binary",
-		),
-	);
+  fs.writeFileSync(
+    PHONE_CAMERA_CA_KEY_PATH,
+    forge.pki.privateKeyToPem(keys.privateKey),
+    "utf8",
+  );
+  fs.writeFileSync(
+    PHONE_CAMERA_CA_PEM_PATH,
+    forge.pki.certificateToPem(certificate),
+    "utf8",
+  );
+  fs.writeFileSync(
+    PHONE_CAMERA_CA_CERT_PATH,
+    Buffer.from(
+      forge.asn1.toDer(forge.pki.certificateToAsn1(certificate)).getBytes(),
+      "binary",
+    ),
+  );
 
-	return { certificate, privateKey: keys.privateKey };
+  return { certificate, privateKey: keys.privateKey };
 }
 
 function loadOrCreatePhoneCameraServerCertificate(
-	lanAddress: string,
-	certificateAuthority: CertificateAuthority,
+  lanAddress: string,
+  certificateAuthority: CertificateAuthority,
 ): { cert: string; key: string } {
-	try {
-		const metadata = JSON.parse(fs.readFileSync(PHONE_CAMERA_SERVER_METADATA_PATH, "utf8")) as {
-			lanAddress?: unknown;
-		};
-		if (
-			metadata.lanAddress === lanAddress &&
-			fs.existsSync(PHONE_CAMERA_SERVER_CERT_PATH) &&
-			fs.existsSync(PHONE_CAMERA_SERVER_KEY_PATH)
-		) {
-			return {
-				cert: fs.readFileSync(PHONE_CAMERA_SERVER_CERT_PATH, "utf8"),
-				key: fs.readFileSync(PHONE_CAMERA_SERVER_KEY_PATH, "utf8"),
-			};
-		}
-	} catch {
-		// The current network address needs a new leaf certificate.
-	}
+  try {
+    const metadata = JSON.parse(
+      fs.readFileSync(PHONE_CAMERA_SERVER_METADATA_PATH, "utf8"),
+    ) as {
+      lanAddress?: unknown;
+    };
+    if (
+      metadata.lanAddress === lanAddress &&
+      fs.existsSync(PHONE_CAMERA_SERVER_CERT_PATH) &&
+      fs.existsSync(PHONE_CAMERA_SERVER_KEY_PATH)
+    ) {
+      return {
+        cert: fs.readFileSync(PHONE_CAMERA_SERVER_CERT_PATH, "utf8"),
+        key: fs.readFileSync(PHONE_CAMERA_SERVER_KEY_PATH, "utf8"),
+      };
+    }
+  } catch {
+    // The current network address needs a new leaf certificate.
+  }
 
-	const keys = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 });
-	const certificate = forge.pki.createCertificate();
-	certificate.publicKey = keys.publicKey;
-	certificate.serialNumber = createCertificateSerialNumber();
-	setCertificateValidity(certificate, 2);
-	certificate.setSubject([{ name: "commonName", value: lanAddress }]);
-	certificate.setIssuer(certificateAuthority.certificate.subject.attributes);
-	certificate.setExtensions([
-		{ name: "basicConstraints", critical: true, cA: false },
-		{ name: "keyUsage", critical: true, digitalSignature: true, keyEncipherment: true },
-		{ name: "extKeyUsage", serverAuth: true },
-		{ name: "subjectAltName", altNames: [{ type: 7, ip: lanAddress }] },
-	]);
-	certificate.sign(certificateAuthority.privateKey, forge.md.sha256.create());
+  const keys = forge.pki.rsa.generateKeyPair({ bits: 2048, e: 0x10001 });
+  const certificate = forge.pki.createCertificate();
+  certificate.publicKey = keys.publicKey;
+  certificate.serialNumber = createCertificateSerialNumber();
+  setCertificateValidity(certificate, 2);
+  certificate.setSubject([{ name: "commonName", value: lanAddress }]);
+  certificate.setIssuer(certificateAuthority.certificate.subject.attributes);
+  certificate.setExtensions([
+    { name: "basicConstraints", critical: true, cA: false },
+    {
+      name: "keyUsage",
+      critical: true,
+      digitalSignature: true,
+      keyEncipherment: true,
+    },
+    { name: "extKeyUsage", serverAuth: true },
+    { name: "subjectAltName", altNames: [{ type: 7, ip: lanAddress }] },
+  ]);
+  certificate.sign(certificateAuthority.privateKey, forge.md.sha256.create());
 
-	const credentials = {
-		cert: forge.pki.certificateToPem(certificate),
-		key: forge.pki.privateKeyToPem(keys.privateKey),
-	};
-	fs.writeFileSync(PHONE_CAMERA_SERVER_CERT_PATH, credentials.cert, "utf8");
-	fs.writeFileSync(PHONE_CAMERA_SERVER_KEY_PATH, credentials.key, "utf8");
-	fs.writeFileSync(
-		PHONE_CAMERA_SERVER_METADATA_PATH,
-		JSON.stringify({ lanAddress }, null, 2),
-		"utf8",
-	);
-	return credentials;
+  const credentials = {
+    cert: forge.pki.certificateToPem(certificate),
+    key: forge.pki.privateKeyToPem(keys.privateKey),
+  };
+  fs.writeFileSync(PHONE_CAMERA_SERVER_CERT_PATH, credentials.cert, "utf8");
+  fs.writeFileSync(PHONE_CAMERA_SERVER_KEY_PATH, credentials.key, "utf8");
+  fs.writeFileSync(
+    PHONE_CAMERA_SERVER_METADATA_PATH,
+    JSON.stringify({ lanAddress }, null, 2),
+    "utf8",
+  );
+  return credentials;
 }
 
-function renderCertificateSetupPage(secureUrl: string, healthUrl: string): string {
-	return `<!DOCTYPE html>
+function renderCertificateSetupPage(
+  secureUrl: string,
+  healthUrl: string,
+  certificateUrl: string,
+  fingerprint: string,
+): string {
+  return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>ZZ Record 手机摄像头</title>
 <style>body{margin:0;background:#07111f;color:#f8fafc;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.page{max-width:560px;margin:0 auto;padding:40px 24px}h1{font-size:28px;line-height:1.25}p,li{color:#cbd5e1}.card{margin:24px 0;padding:20px;border:1px solid #28415f;border-radius:14px;background:#0d1b2a}a{display:block;margin-top:14px;padding:13px 16px;border-radius:10px;background:#2563eb;color:#fff;text-align:center;text-decoration:none;font-weight:700}.secondary{background:#1e293b}.note{font-size:14px;color:#94a3b8}.setup-card{display:none}body.needs-setup .setup-card{display:block}body.needs-setup #connecting{display:none}</style>
-</head><body><main class="page"><div id="connecting"><h1>正在打开手机摄像头</h1><p>正在验证本机安全连接...</p></div><section class="card setup-card"><h1>信任本机证书</h1><p>手机浏览器只允许在 HTTPS 页面使用摄像头。此证书仅用于当前电脑的局域网摄像头连接，视频不会上传到互联网。</p><strong>首次使用</strong><ol><li>下载并安装证书。</li><li>iPhone: 在“设置 - 已下载描述文件”安装后，到“通用 - 关于本机 - 证书信任设置”启用完全信任。</li><li>Android: 下载后按系统提示安装为 CA 证书。</li><li>返回这里，打开安全摄像头页并允许摄像头权限。</li></ol><a href="/phone-camera-ca.cer">下载本机证书</a><a class="secondary" href=${JSON.stringify(secureUrl)}>我已安装证书，打开安全摄像头页</a></section><p class="note setup-card">证书只需在这台手机上安装一次。更换电脑或清除 ZZ Record 数据后需要重新安装。</p></main><script>const secureUrl=${JSON.stringify(secureUrl)};const healthUrl=${JSON.stringify(healthUrl)};let settled=false;const showSetup=()=>{if(settled)return;settled=true;document.body.classList.add('needs-setup')};const timeout=window.setTimeout(showSetup,1500);fetch(healthUrl,{cache:'no-store',mode:'cors'}).then((response)=>{if(!response.ok)throw new Error('HTTPS health check failed');settled=true;window.clearTimeout(timeout);window.location.replace(secureUrl)}).catch(()=>{window.clearTimeout(timeout);showSetup()});</script></body></html>`;
+</head><body><main class="page"><div id="connecting"><h1>正在打开手机摄像头</h1><p>正在验证本机安全连接...</p></div><section class="card setup-card"><h1>信任本机证书</h1><p>手机浏览器只允许在 HTTPS 页面使用摄像头。此证书仅用于当前电脑的局域网摄像头连接，视频不会上传到互联网。</p><strong>请先核对手机和电脑显示的 CA SHA-256 指纹完全一致：</strong><p style="word-break:break-all;font-family:monospace">${fingerprint}</p><strong>首次使用</strong><ol><li>下载并安装证书。</li><li>iPhone: 在“设置 - 已下载描述文件”安装后，到“通用 - 关于本机 - 证书信任设置”启用完全信任。</li><li>Android: 下载后按系统提示安装为 CA 证书。</li><li>返回这里，打开安全摄像头页并允许摄像头权限。</li></ol><a href=${JSON.stringify(certificateUrl)}>下载本机证书</a><a class="secondary" href=${JSON.stringify(secureUrl)}>我已安装证书，打开安全摄像头页</a></section><p class="note setup-card">证书只需在这台手机上安装一次。更换电脑或清除 ZZ Record 数据后需要重新安装。</p></main><script>const secureUrl=${JSON.stringify(secureUrl)};const healthUrl=${JSON.stringify(healthUrl)};let settled=false;const showSetup=()=>{if(settled)return;settled=true;document.body.classList.add('needs-setup')};const timeout=window.setTimeout(showSetup,1500);fetch(healthUrl,{cache:'no-store',mode:'cors'}).then((response)=>{if(!response.ok)throw new Error('HTTPS health check failed');settled=true;window.clearTimeout(timeout);window.location.replace(secureUrl)}).catch(()=>{window.clearTimeout(timeout);showSetup()});</script></body></html>`;
 }
 
-function renderBridgePage(params: { sessionId: string; pairingCode: string }) {
-	const { sessionId, pairingCode } = params;
-	return `<!DOCTYPE html>
+function renderBridgePage(params: { sessionId: string; pairingToken: string }) {
+  const { sessionId, pairingToken } = params;
+  return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8" />
@@ -283,7 +400,7 @@ const errorMsg = document.getElementById('error-msg');
 const switchBtn = document.getElementById('switch-btn');
 const disconnectBtn = document.getElementById('disconnect-btn');
 const sessionId = ${JSON.stringify(sessionId)};
-const pairingCode = ${JSON.stringify(pairingCode)};
+const pairingToken = ${JSON.stringify(pairingToken)};
 let cameraStream = null;
 let wakeLock = null;
 let facingMode = 'environment';
@@ -376,7 +493,7 @@ async function connectAndStartFrameUpload() {
     const response = await fetch('/phone-camera/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, pairingCode })
+      body: JSON.stringify({ sessionId, pairingToken })
     });
     if (response.status === 410) {
       const error = new Error('此配对已被电脑端取消，请重新扫码连接。');
@@ -428,7 +545,7 @@ async function uploadFrame() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sessionId,
-        pairingCode,
+        pairingToken,
         frameDataUrl: frameCanvas.toDataURL('image/jpeg', 0.72),
         width,
         height,
@@ -467,284 +584,371 @@ window.addEventListener('beforeunload', () => { disconnect(); });
 }
 
 function renderInvalidBridgePage(): string {
-	return `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" /><title>ZZ Record 手机摄像头</title></head>
 <body><main><h1>配对链接已失效</h1><p>请在电脑端重新选择手机摄像头并扫码连接。</p></main></body>
 </html>`;
 }
 
-function hasValidPhoneCameraFrameDimensions(width: unknown, height: unknown): boolean {
-	return (
-		typeof width === "number" &&
-		typeof height === "number" &&
-		Number.isInteger(width) &&
-		Number.isInteger(height) &&
-		width > 0 &&
-		height > 0 &&
-		width <= PHONE_CAMERA_FRAME_MAX_DIMENSION &&
-		height <= PHONE_CAMERA_FRAME_MAX_DIMENSION &&
-		width * height <= PHONE_CAMERA_FRAME_MAX_PIXELS
-	);
+function hasValidPhoneCameraFrameDimensions(
+  width: unknown,
+  height: unknown,
+): boolean {
+  return (
+    typeof width === "number" &&
+    typeof height === "number" &&
+    Number.isInteger(width) &&
+    Number.isInteger(height) &&
+    width > 0 &&
+    height > 0 &&
+    width <= PHONE_CAMERA_FRAME_MAX_DIMENSION &&
+    height <= PHONE_CAMERA_FRAME_MAX_DIMENSION &&
+    width * height <= PHONE_CAMERA_FRAME_MAX_PIXELS
+  );
 }
 
-function handlePhoneCameraSetupRequest(request: IncomingMessage, response: ServerResponse): void {
-	const base = bridgeSetupBaseUrl ?? "http://127.0.0.1";
-	const url = new URL(request.url ?? "/", base);
-
-	if (url.pathname === "/phone-camera-ca.cer" && request.method === "GET") {
-		response.writeHead(200, {
-			"Content-Type": "application/x-x509-ca-cert",
-			"Content-Disposition": "attachment; filename=zz-record-local-camera-ca.cer",
-		});
-		response.end(fs.readFileSync(PHONE_CAMERA_CA_CERT_PATH));
-		return;
-	}
-
-	if (url.pathname === "/phone-camera-setup" && request.method === "GET") {
-		const secureBaseUrl = bridgeBaseUrl ?? "https://127.0.0.1";
-		const secureUrl = new URL("/phone-camera", secureBaseUrl);
-		secureUrl.search = url.search;
-		const healthUrl = new URL("/phone-camera-health", secureBaseUrl);
-		response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-		response.end(renderCertificateSetupPage(secureUrl.toString(), healthUrl.toString()));
-		return;
-	}
-
-	response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-	response.end("Not Found");
+export function handlePhoneCameraSetupRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+): void {
+  const base = bridgeSetupBaseUrl ?? "http://127.0.0.1";
+  const url = new URL(request.url ?? "/", base);
+  const sessionId = url.searchParams.get("session") ?? "";
+  const pairingToken = url.searchParams.get("token") ?? "";
+  const common = PHONE_CAMERA_SECURITY_HEADERS;
+  if (url.pathname === "/phone-camera-ca.cer" && request.method === "GET") {
+    const ticket = url.searchParams.get("ticket") ?? "";
+    if (
+      !isValidSession(sessionId, pairingToken) ||
+      !caDownloadTickets.consume(ticket, sessionId)
+    ) {
+      response.writeHead(410, {
+        ...common,
+        "Content-Type": "text/plain; charset=utf-8",
+      });
+      response.end("Certificate download link expired.");
+      return;
+    }
+    response.writeHead(200, {
+      ...common,
+      "Content-Type": "application/x-x509-ca-cert",
+      "Content-Disposition":
+        "attachment; filename=zz-record-local-camera-ca.cer",
+    });
+    response.end(fs.readFileSync(PHONE_CAMERA_CA_CERT_PATH));
+    return;
+  }
+  if (url.pathname === "/phone-camera-setup" && request.method === "GET") {
+    const session = currentSessionResolver?.();
+    const ticket =
+      isValidSession(sessionId, pairingToken) && session?.pairingExpiresAtMs
+        ? caDownloadTickets.issue(sessionId, session.pairingExpiresAtMs)
+        : null;
+    if (!ticket || !bridgeCaFingerprint) {
+      response.writeHead(410, {
+        ...common,
+        "Content-Type": "text/plain; charset=utf-8",
+      });
+      response.end("Pairing link expired. Please scan a new QR code.");
+      return;
+    }
+    const secureBase = bridgeBaseUrl ?? "https://127.0.0.1";
+    const secureUrl = new URL("/phone-camera", secureBase);
+    secureUrl.search = url.search;
+    const caUrl = new URL("/phone-camera-ca.cer", base);
+    caUrl.searchParams.set("session", sessionId);
+    caUrl.searchParams.set("token", pairingToken);
+    caUrl.searchParams.set("ticket", ticket);
+    const healthUrl = new URL("/phone-camera-health", secureBase);
+    response.writeHead(200, {
+      ...common,
+      "Content-Type": "text/html; charset=utf-8",
+    });
+    response.end(
+      renderCertificateSetupPage(
+        secureUrl.toString(),
+        healthUrl.toString(),
+        caUrl.toString(),
+        bridgeCaFingerprint,
+      ),
+    );
+    return;
+  }
+  response.writeHead(404, {
+    ...common,
+    "Content-Type": "text/plain; charset=utf-8",
+  });
+  response.end("Not Found");
 }
-
 export async function handlePhoneCameraBridgeRequest(
-	request: IncomingMessage,
-	response: ServerResponse,
+  request: IncomingMessage,
+  response: ServerResponse,
 ): Promise<void> {
-	try {
-		const base = bridgeBaseUrl ?? "http://127.0.0.1";
-		const url = new URL(request.url ?? "/", base);
-		if (request.method === "OPTIONS") {
-			response.writeHead(204, {
-				"Access-Control-Allow-Origin": "*",
-				"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-				"Access-Control-Allow-Headers": "Content-Type",
-			});
-			response.end();
-			return;
-		}
+  try {
+    const base = bridgeBaseUrl ?? "http://127.0.0.1";
+    const url = new URL(request.url ?? "/", base);
+    if (url.pathname === "/phone-camera-health") {
+      const origin = request.headers.origin;
+      const cors =
+        origin && origin === bridgeSetupBaseUrl
+          ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" }
+          : {};
+      if (request.method === "OPTIONS" && Object.keys(cors).length) {
+        response.writeHead(204, {
+          ...PHONE_CAMERA_SECURITY_HEADERS,
+          ...cors,
+          "Access-Control-Allow-Methods": "GET, OPTIONS",
+        });
+        response.end();
+        return;
+      }
+      if (request.method === "GET") {
+        response.writeHead(204, { ...PHONE_CAMERA_SECURITY_HEADERS, ...cors });
+        response.end();
+        return;
+      }
+    }
 
-		if (url.pathname === "/phone-camera-health" && request.method === "GET") {
-			response.writeHead(204, {
-				"Access-Control-Allow-Origin": "*",
-				"Cache-Control": "no-store",
-			});
-			response.end();
-			return;
-		}
+    if (url.pathname === "/phone-camera" && request.method === "GET") {
+      const sessionId = url.searchParams.get("session") ?? "";
+      const pairingToken = url.searchParams.get("token") ?? "";
+      const valid = isValidSession(sessionId, pairingToken);
+      const html = valid
+        ? renderBridgePage({ sessionId, pairingToken })
+        : renderInvalidBridgePage();
+      response.writeHead(valid ? 200 : 410, {
+        ...PHONE_CAMERA_SECURITY_HEADERS,
+        "Content-Type": "text/html; charset=utf-8",
+      });
+      response.end(html);
+      return;
+    }
 
-		if (url.pathname === "/phone-camera" && request.method === "GET") {
-			const state = currentSessionResolver?.() ?? {};
-			const sessionId = url.searchParams.get("session") ?? "";
-			const pairingCode = (url.searchParams.get("code") ?? "").toUpperCase();
-			const valid = Boolean(
-				state.sessionId &&
-					state.pairingCode &&
-					state.sessionId === sessionId &&
-					state.pairingCode === pairingCode,
-			);
-			const html = valid
-				? renderBridgePage({ sessionId, pairingCode })
-				: renderInvalidBridgePage();
-			response.writeHead(valid ? 200 : 410, { "Content-Type": "text/html; charset=utf-8" });
-			response.end(html);
-			return;
-		}
+    if (url.pathname === "/phone-camera/connect" && request.method === "POST") {
+      const body = (await readJsonBody(
+        request,
+        PHONE_CAMERA_CONNECT_BODY_MAX_BYTES,
+      )) as {
+        sessionId?: string;
+        pairingToken?: string;
+      } | null;
+      const sessionId = body?.sessionId;
+      const pairingToken = body?.pairingToken;
+      const success =
+        typeof sessionId === "string" &&
+        typeof pairingToken === "string" &&
+        Boolean(
+          connectCallback?.({
+            sessionId,
+            pairingToken,
+            remoteAddress: request.socket.remoteAddress ?? null,
+          }),
+        );
+      response.writeHead(success ? 200 : 410, {
+        ...PHONE_CAMERA_SECURITY_HEADERS,
+        "Content-Type": "application/json; charset=utf-8",
+      });
+      response.end(
+        JSON.stringify(
+          success
+            ? { success: true }
+            : { success: false, error: "Session expired or invalid." },
+        ),
+      );
+      return;
+    }
 
-		if (url.pathname === "/phone-camera/connect" && request.method === "POST") {
-			const body = (await readJsonBody(request, PHONE_CAMERA_CONNECT_BODY_MAX_BYTES)) as {
-				sessionId?: string;
-				pairingCode?: string;
-			} | null;
-			const sessionId = body?.sessionId;
-			const pairingCode = body?.pairingCode?.toUpperCase();
-			const success =
-				typeof sessionId === "string" &&
-				typeof pairingCode === "string" &&
-				Boolean(
-					connectCallback?.({
-						sessionId,
-						pairingCode,
-						remoteAddress: request.socket.remoteAddress ?? null,
-					}),
-				);
-			response.writeHead(success ? 200 : 410, {
-				"Content-Type": "application/json; charset=utf-8",
-				"Access-Control-Allow-Origin": "*",
-			});
-			response.end(
-				JSON.stringify(
-					success
-						? { success: true }
-						: { success: false, error: "Session expired or invalid." },
-				),
-			);
-			return;
-		}
+    if (url.pathname === "/phone-camera/frame" && request.method === "POST") {
+      const body = (await readJsonBody(
+        request,
+        PHONE_CAMERA_FRAME_BODY_MAX_BYTES,
+      )) as {
+        sessionId?: string;
+        pairingToken?: string;
+        frameDataUrl?: string;
+        width?: number;
+        height?: number;
+        capturedAtMs?: number;
+      } | null;
+      const sessionId = body?.sessionId;
+      const pairingToken = body?.pairingToken;
+      const frameDataUrl = body?.frameDataUrl;
+      const success =
+        typeof sessionId === "string" &&
+        typeof pairingToken === "string" &&
+        typeof frameDataUrl === "string" &&
+        frameDataUrl.length <= PHONE_CAMERA_FRAME_DATA_URL_MAX_LENGTH &&
+        hasValidPhoneCameraFrameDimensions(body?.width, body?.height) &&
+        Boolean(
+          frameCallback?.({
+            sessionId,
+            pairingToken,
+            frameDataUrl,
+            width: typeof body?.width === "number" ? body.width : undefined,
+            height: typeof body?.height === "number" ? body.height : undefined,
+            capturedAtMs:
+              typeof body?.capturedAtMs === "number"
+                ? body.capturedAtMs
+                : undefined,
+            remoteAddress: request.socket.remoteAddress ?? null,
+          }),
+        );
+      response.writeHead(success ? 200 : 410, {
+        ...PHONE_CAMERA_SECURITY_HEADERS,
+        "Content-Type": "application/json; charset=utf-8",
+      });
+      response.end(
+        JSON.stringify(
+          success
+            ? { success: true }
+            : { success: false, error: "Frame rejected." },
+        ),
+      );
+      return;
+    }
 
-		if (url.pathname === "/phone-camera/frame" && request.method === "POST") {
-			const body = (await readJsonBody(request, PHONE_CAMERA_FRAME_BODY_MAX_BYTES)) as {
-				sessionId?: string;
-				pairingCode?: string;
-				frameDataUrl?: string;
-				width?: number;
-				height?: number;
-				capturedAtMs?: number;
-			} | null;
-			const sessionId = body?.sessionId;
-			const pairingCode = body?.pairingCode?.toUpperCase();
-			const frameDataUrl = body?.frameDataUrl;
-			const success =
-				typeof sessionId === "string" &&
-				typeof pairingCode === "string" &&
-				typeof frameDataUrl === "string" &&
-				frameDataUrl.length <= PHONE_CAMERA_FRAME_DATA_URL_MAX_LENGTH &&
-				hasValidPhoneCameraFrameDimensions(body?.width, body?.height) &&
-				Boolean(
-					frameCallback?.({
-						sessionId,
-						pairingCode,
-						frameDataUrl,
-						width: typeof body?.width === "number" ? body.width : undefined,
-						height: typeof body?.height === "number" ? body.height : undefined,
-						capturedAtMs:
-							typeof body?.capturedAtMs === "number" ? body.capturedAtMs : undefined,
-						remoteAddress: request.socket.remoteAddress ?? null,
-					}),
-				);
-			response.writeHead(success ? 200 : 410, {
-				"Content-Type": "application/json; charset=utf-8",
-				"Access-Control-Allow-Origin": "*",
-			});
-			response.end(
-				JSON.stringify(
-					success ? { success: true } : { success: false, error: "Frame rejected." },
-				),
-			);
-			return;
-		}
-
-		response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-		response.end("Not Found");
-	} catch (error) {
-		if (error instanceof RequestBodyTooLargeError) {
-			response.writeHead(413, {
-				"Content-Type": "application/json; charset=utf-8",
-				"Access-Control-Allow-Origin": "*",
-			});
-			response.end(JSON.stringify({ error: "Request body is too large." }));
-			return;
-		}
-		console.error("[phone-camera-bridge] Error handling request:", error);
-		response.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-		response.end("Internal Server Error");
-	}
+    response.writeHead(404, {
+      ...PHONE_CAMERA_SECURITY_HEADERS,
+      "Content-Type": "text/plain; charset=utf-8",
+    });
+    response.end("Not Found");
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      response.writeHead(413, {
+        ...PHONE_CAMERA_SECURITY_HEADERS,
+        "Content-Type": "application/json; charset=utf-8",
+      });
+      response.end(JSON.stringify({ error: "Request body is too large." }));
+      return;
+    }
+    console.error("[phone-camera-bridge] Error handling request:", error);
+    response.writeHead(500, {
+      ...PHONE_CAMERA_SECURITY_HEADERS,
+      "Content-Type": "text/plain; charset=utf-8",
+    });
+    response.end("Internal Server Error");
+  }
 }
 
 export function configurePhoneCameraBridgeSession(options: {
-	getSession: () => { sessionId?: string; pairingCode?: string; pairingUrl?: string };
-	onConnect: (payload: {
-		sessionId: string;
-		pairingCode: string;
-		remoteAddress?: string | null;
-	}) => boolean;
-	onFrame: (payload: {
-		sessionId: string;
-		pairingCode: string;
-		frameDataUrl: string;
-		width?: number;
-		height?: number;
-		capturedAtMs?: number;
-		remoteAddress?: string | null;
-	}) => boolean;
+  getSession: () => PhoneCameraSession;
+  /** Enables deterministic bootstrap-route tests without starting TCP listeners. */
+  caFingerprintForTests?: string;
+  onConnect: (payload: {
+    sessionId: string;
+    pairingToken: string;
+    remoteAddress?: string | null;
+  }) => boolean;
+  onFrame: (payload: {
+    sessionId: string;
+    pairingToken: string;
+    frameDataUrl: string;
+    width?: number;
+    height?: number;
+    capturedAtMs?: number;
+    remoteAddress?: string | null;
+  }) => boolean;
 }): void {
-	currentSessionResolver = options.getSession;
-	connectCallback = options.onConnect;
-	frameCallback = options.onFrame;
+  currentSessionResolver = options.getSession;
+  if (options.caFingerprintForTests !== undefined) {
+    bridgeCaFingerprint = options.caFingerprintForTests;
+  }
+  connectCallback = options.onConnect;
+  frameCallback = options.onFrame;
 }
 
 export function getPhoneCameraBridgeBaseUrl(): string | null {
-	return bridgeBaseUrl;
+  return bridgeBaseUrl;
+}
+
+export function getPhoneCameraBridgeSetupBaseUrl(): string | null {
+  return bridgeSetupBaseUrl;
+}
+
+export function getPhoneCameraCaFingerprint(): string | null {
+  return bridgeCaFingerprint;
 }
 
 export async function ensurePhoneCameraBridgeServer(): Promise<string> {
-	if (bridgeBaseUrl) {
-		return bridgeBaseUrl;
-	}
-	if (bridgeStartPromise) {
-		return bridgeStartPromise;
-	}
-	bridgeStartPromise = (async () => {
-		const lanAddress = getPreferredLanAddress();
-		if (lanAddress === "127.0.0.1") {
-			throw new Error("No local IPv4 network address is available for phone camera pairing.");
-		}
+  if (bridgeBaseUrl) {
+    return bridgeBaseUrl;
+  }
+  if (bridgeStartPromise) {
+    return bridgeStartPromise;
+  }
+  bridgeStartPromise = (async () => {
+    const lanAddress = getPreferredLanAddress();
+    if (lanAddress === "127.0.0.1") {
+      throw new Error(
+        "No local IPv4 network address is available for phone camera pairing.",
+      );
+    }
 
-		const certificateAuthority = loadOrCreatePhoneCameraCertificateAuthority();
-		const credentials = loadOrCreatePhoneCameraServerCertificate(
-			lanAddress,
-			certificateAuthority,
-		);
-		const secureServer = createHttpsServer(credentials, (request, response) => {
-			void handlePhoneCameraBridgeRequest(request, response);
-		});
-		const setupServer = createServer((request, response) => {
-			handlePhoneCameraSetupRequest(request, response);
-		});
+    const certificateAuthority = loadOrCreatePhoneCameraCertificateAuthority();
+    bridgeCaFingerprint = getCertificateSha256Fingerprint(
+      certificateAuthority.certificate,
+    );
+    const credentials = loadOrCreatePhoneCameraServerCertificate(
+      lanAddress,
+      certificateAuthority,
+    );
+    const secureServer = createHttpsServer(credentials, (request, response) => {
+      void handlePhoneCameraBridgeRequest(request, response);
+    });
+    const setupServer = createServer((request, response) => {
+      handlePhoneCameraSetupRequest(request, response);
+    });
 
-		try {
-			const securePort = await new Promise<number>((resolve, reject) => {
-				secureServer.once("error", reject);
-				secureServer.listen(PHONE_CAMERA_HTTPS_PORT, lanAddress, () => {
-					const address = secureServer.address();
-					if (!address || typeof address === "string") {
-						reject(
-							new Error("Phone camera HTTPS server did not expose a TCP address."),
-						);
-						return;
-					}
-					resolve(address.port);
-				});
-			});
-			const setupPort = await new Promise<number>((resolve, reject) => {
-				setupServer.once("error", reject);
-				setupServer.listen(PHONE_CAMERA_SETUP_PORT, lanAddress, () => {
-					const address = setupServer.address();
-					if (!address || typeof address === "string") {
-						reject(
-							new Error("Phone camera setup server did not expose a TCP address."),
-						);
-						return;
-					}
-					resolve(address.port);
-				});
-			});
+    try {
+      const securePort = await new Promise<number>((resolve, reject) => {
+        secureServer.once("error", reject);
+        secureServer.listen(PHONE_CAMERA_HTTPS_PORT, lanAddress, () => {
+          const address = secureServer.address();
+          if (!address || typeof address === "string") {
+            reject(
+              new Error(
+                "Phone camera HTTPS server did not expose a TCP address.",
+              ),
+            );
+            return;
+          }
+          resolve(address.port);
+        });
+      });
+      const setupPort = await new Promise<number>((resolve, reject) => {
+        setupServer.once("error", reject);
+        setupServer.listen(PHONE_CAMERA_SETUP_PORT, lanAddress, () => {
+          const address = setupServer.address();
+          if (!address || typeof address === "string") {
+            reject(
+              new Error(
+                "Phone camera setup server did not expose a TCP address.",
+              ),
+            );
+            return;
+          }
+          resolve(address.port);
+        });
+      });
 
-			bridgeBaseUrl = `https://${lanAddress}:${securePort}`;
-			bridgeSetupBaseUrl = `http://${lanAddress}:${setupPort}`;
-			console.log(
-				`[phone-camera-bridge] HTTPS at ${bridgeBaseUrl}; certificate setup at ${bridgeSetupBaseUrl}`,
-			);
-			return bridgeBaseUrl;
-		} catch (error) {
-			secureServer.close();
-			setupServer.close();
-			throw error;
-		}
-	})();
+      bridgeBaseUrl = `https://${lanAddress}:${securePort}`;
+      bridgeSetupBaseUrl = `http://${lanAddress}:${setupPort}`;
+      console.log(
+        `[phone-camera-bridge] HTTPS at ${bridgeBaseUrl}; certificate setup at ${bridgeSetupBaseUrl}`,
+      );
+      return bridgeBaseUrl;
+    } catch (error) {
+      secureServer.close();
+      setupServer.close();
+      throw error;
+    }
+  })();
 
-	try {
-		return await bridgeStartPromise;
-	} catch (error) {
-		bridgeStartPromise = null;
-		throw error;
-	}
+  try {
+    return await bridgeStartPromise;
+  } catch (error) {
+    bridgeStartPromise = null;
+    throw error;
+  }
 }
