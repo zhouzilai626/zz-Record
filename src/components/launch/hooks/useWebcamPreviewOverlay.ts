@@ -1,6 +1,9 @@
-import { type PointerEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type PointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { isPhoneCameraDeviceId } from "@/lib/phoneCamera";
-import { shouldShowExternalLocalWebcamPreview } from "../floatingWebcamPreview";
+import {
+	shouldHideExternalLocalWebcamPreview,
+	shouldShowExternalLocalWebcamPreview,
+} from "../floatingWebcamPreview";
 
 const WEBCAM_PREVIEW_DRAG_THRESHOLD = 6;
 const DEFAULT_WEBCAM_PREVIEW_OFFSET = { x: 0, y: 0 };
@@ -64,6 +67,17 @@ export function useWebcamPreviewOverlay({
 	} | null>(null);
 	const isWebcamPreviewDraggingRef = useRef(false);
 	const isPhoneCameraPreview = webcamEnabled && isPhoneCameraDeviceId(webcamDeviceId);
+
+	// The editor can open before this renderer's normal effect cleanup runs. Hide the
+	// protected native preview synchronously as recording ends so it never overlaps
+	// the editor's saved webcam layer during the first rendered second.
+	useLayoutEffect(() => {
+		if (recording || !shouldHideExternalLocalWebcamPreview(webcamEnabled, isPhoneCameraPreview)) {
+			return;
+		}
+		void window.electronAPI.cameraOverlayHideLocal();
+	}, [isPhoneCameraPreview, recording, webcamEnabled]);
+
 	const adjustWebcamPreviewSize = useCallback((delta: number) => {
 		setWebcamPreviewSize((current) =>
 			Math.max(MIN_WEBCAM_PREVIEW_SIZE, Math.min(MAX_WEBCAM_PREVIEW_SIZE, current + delta)),
@@ -79,7 +93,11 @@ export function useWebcamPreviewOverlay({
 		webcamEnabled &&
 		(showRecordingWebcamPreview ||
 			(showWebcamControls && webcamPopoverOpen) ||
-			shouldShowExternalLocalWebcamPreview(webcamEnabled, isPhoneCameraPreview));
+			shouldShowExternalLocalWebcamPreview(
+					recording,
+					webcamEnabled,
+					isPhoneCameraPreview,
+				));
 
 	useEffect(() => {
 		if (!webcamEnabled) {

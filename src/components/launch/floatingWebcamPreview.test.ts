@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	canShowFloatingWebcamPreview,
 	canToggleFloatingWebcamPreview,
+	shouldHideExternalLocalWebcamPreview,
 	shouldShowExternalLocalWebcamPreview,
 } from "./floatingWebcamPreview";
 
@@ -24,9 +25,18 @@ describe("canToggleFloatingWebcamPreview", () => {
 	});
 });
 describe("shouldShowExternalLocalWebcamPreview", () => {
-	it("keeps a local camera preview in the protected floating window during recording", () => {
-		expect(shouldShowExternalLocalWebcamPreview(true, false)).toBe(true);
-		expect(shouldShowExternalLocalWebcamPreview(false, false)).toBe(false);
-		expect(shouldShowExternalLocalWebcamPreview(true, true)).toBe(false);
+	it("only keeps a local camera preview in the protected floating window while recording", () => {
+		expect(shouldShowExternalLocalWebcamPreview(true, true, false)).toBe(true);
+		expect(shouldShowExternalLocalWebcamPreview(false, true, false)).toBe(false);
+		expect(shouldShowExternalLocalWebcamPreview(true, false, false)).toBe(false);
+		expect(shouldShowExternalLocalWebcamPreview(true, true, true)).toBe(false);
+	});
+});
+
+describe("shouldHideExternalLocalWebcamPreview", () => {
+	it("hides a local camera preview as soon as recording ends, while leaving phone previews alone", () => {
+		expect(shouldHideExternalLocalWebcamPreview(true, false)).toBe(true);
+		expect(shouldHideExternalLocalWebcamPreview(false, false)).toBe(false);
+		expect(shouldHideExternalLocalWebcamPreview(true, true)).toBe(false);
 	});
 });

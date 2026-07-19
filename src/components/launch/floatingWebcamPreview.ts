@@ -3,6 +3,14 @@ export function canShowFloatingWebcamPreview(requested: boolean): boolean {
 }
 
 export function shouldShowExternalLocalWebcamPreview(
+	recording: boolean,
+	webcamEnabled: boolean,
+	isPhoneCameraPreview: boolean,
+): boolean {
+	return recording && webcamEnabled && !isPhoneCameraPreview;
+}
+
+export function shouldHideExternalLocalWebcamPreview(
 	webcamEnabled: boolean,
 	isPhoneCameraPreview: boolean,
 ): boolean {
