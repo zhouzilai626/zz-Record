@@ -66,7 +66,7 @@ npm test  # 连续运行两次
 
 本轮已执行的 phone camera 定向验证（2026-07-19）：`electron/phoneCameraBridgeServer.test.ts`、`electron/phoneCameraSessionState.test.ts`、`electron/windowSecurity.test.ts`、`electron/ipc/register/exportCaptionSidecars.test.ts` 与 `src/components/phone-camera/PhoneCameraPairingWindow.test.ts` 共 **5 个文件 / 35 项测试通过**；同时 `npx tsc --noEmit` 与 `git diff --check` 通过。定向结果覆盖 token 过期时的 bridge/setup 页、连接和帧上传拒绝；CA ticket 的会话绑定、单次消费、过期和签发上限；setup/CA 下载路由的缺失 ticket 拒绝、跨会话 ticket 拒绝和三次签发上限；不可信 Origin 不会获得 health 探测 CORS 权限；完整安全响应头；以及桌面配对窗口的准备、等待、已连接、异常和停止状态文案。sidecar 写入失败日志为测试主动模拟 `disk full` 的预期故障路径。
 
-已连续执行两次完整 `npm test`，两次命令均以退出码 `0` 完成；最近一次输出为 **112 个测试文件 / 917 项测试通过**（总耗时 74.23 秒）。测试输出含导出 fallback 等测试主动触发的预期错误日志，未出现失败用例。已执行 TypeScript、Vite、Electron main CJS 规范化与 smoke 验证，均通过；Vite 仅报告既有的大 chunk 与 browserslist 数据过期提示，未产生构建失败。
+已连续执行两次完整 `npm test`，两次命令均以退出码 `0` 完成；2026-07-19 记录的最后一次输出为 **112 个测试文件 / 917 项测试通过**（总耗时 74.23 秒）。测试输出含导出 fallback 等测试主动触发的预期错误日志，未出现失败用例。已执行 TypeScript、Vite、Electron main CJS 规范化与 smoke 验证，均通过；Vite 仅报告既有的大 chunk 与 browserslist 数据过期提示，未产生构建失败。
 
 CA-01～CA-05 真机回归由用户于 2026-07-19 确认通过。该记录反映用户的实际验收结论；未额外记录设备型号、系统版本、网络 SSID 或证书安装截图。后续如需发布审计证据，应补充这些环境信息。
 
@@ -88,4 +88,4 @@ CA-01～CA-05 真机回归由用户于 2026-07-19 确认通过。该记录反映
 - `electron/native/bin/win32-x64/recordly-gpu-export.exe`
 - `electron/native/bin/win32-x64/wgc-capture.exe`
 
-建议在真机验收完成后，按功能拆分本轮改动：手机信任引导、安全响应头与测试；IPC caller policy 与资产权限；扩展状态及字幕 sidecar 原子持久化；文档更新。推送前需要用户明确确认。
+本轮改动已按功能提交，`v1.4.6` tag 与 GitHub Release 已于 2026-07-19 公开。后续若继续加固，应以新的变更集维护本清单，并在发布后单独归档 GitHub 附件的下载校验结果。
