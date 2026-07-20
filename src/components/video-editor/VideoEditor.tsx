@@ -6436,6 +6436,7 @@ export default function VideoEditor() {
 							onDownloadWhisperSmallModel={handleDownloadWhisperSmallModel}
 							onDeleteWhisperSmallModel={handleDeleteWhisperSmallModel}
 							nativeCaptureUnavailableSession={sessionNativeCaptureUnavailable}
+							isRecording={false}
 							onOpenNativeCaptureUnavailableModal={() =>
 								setNativeCaptureUnavailableModalOpen(true)
 							}

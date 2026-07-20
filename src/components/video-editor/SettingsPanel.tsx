@@ -55,6 +55,7 @@ import {
 import { loadEditorPreferences, saveEditorPreferences } from "./editorPreferences";
 import { SliderControl } from "./SliderControl";
 import { KeyboardShortcutsDialog } from "./TutorialHelp";
+import { EditorUpdateCard } from "./EditorUpdateCard";
 import type {
 	AnnotationRegion,
 	AnnotationType,
@@ -848,6 +849,7 @@ interface SettingsPanelProps {
 	onCaptionDelete?: (id: string) => void;
 	nativeCaptureUnavailableSession?: boolean;
 	onOpenNativeCaptureUnavailableModal?: () => void;
+	isRecording?: boolean;
 }
 
 const ZOOM_DEPTH_OPTIONS: Array<{ depth: ZoomDepth; label: string }> = [
@@ -1290,6 +1292,7 @@ export function SettingsPanel({
 	onCaptionDelete,
 	nativeCaptureUnavailableSession = false,
 	onOpenNativeCaptureUnavailableModal,
+	isRecording = false,
 }: SettingsPanelProps) {
 	const tSettings = useScopedT("settings");
 	const { locale, setLocale, t } = useI18n();
@@ -2884,6 +2887,7 @@ export function SettingsPanel({
 	const effectSectionContent = (() => {
 		const settingsSectionContent = (
 			<div className="space-y-4">
+
 				<section className="flex flex-col gap-2">
 					<SectionLabel>{t("editor.theme.appearance", "Appearance")}</SectionLabel>
 					<div className="flex rounded-lg border border-foreground/10 bg-foreground/5 p-0.5">
@@ -2979,7 +2983,12 @@ export function SettingsPanel({
 				</section>
 
 				<section className="flex flex-col gap-2">
-					<SectionLabel>{t("editor.keyboardShortcuts.title")}</SectionLabel>
+					<SectionLabel>应用更新</SectionLabel>
+						<EditorUpdateCard isRecording={isRecording} />
+					</section>
+
+					<section className="flex flex-col gap-2">
+						<SectionLabel>{t("editor.keyboardShortcuts.title")}</SectionLabel>
 					<KeyboardShortcutsDialog
 						triggerLabel={t("editor.keyboardShortcuts.customize")}
 						triggerClassName="h-10 w-full justify-start rounded-xl border border-foreground/10 bg-foreground/5 px-3 text-sm text-foreground hover:bg-foreground/10 hover:text-foreground"

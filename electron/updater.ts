@@ -125,8 +125,32 @@ function configureUpdateFeed() {
 	writeUpdaterLog(`Using overridden update feed: ${UPDATE_FEED_URL_OVERRIDE}`);
 }
 
+function isUnpackedDirectoryBuild() {
+	// `electron-builder --dir` creates a runnable unpacked app for local QA, but it
+	// deliberately omits app-update.yml. electron-updater otherwise reports that
+	// implementation detail as an error when the user clicks "Check for updates".
+	// A real NSIS-installed release always ships this file beside the app resources.
+	return Boolean(
+		app.isPackaged &&
+			process.resourcesPath &&
+			!fs.existsSync(path.join(process.resourcesPath, "app-update.yml")),
+	);
+}
+
 function canUseAutoUpdates() {
-	return !AUTO_UPDATES_DISABLED && app.isPackaged && !process.mas;
+	return !AUTO_UPDATES_DISABLED && app.isPackaged && !process.mas && !isUnpackedDirectoryBuild();
+}
+
+function getUnavailableUpdateDetail() {
+	if (isUnpackedDirectoryBuild()) {
+		return "当前是本地解包验收版，不能检查正式更新。请使用通过安装包装好的 ZZ Record。";
+	}
+
+	if (AUTO_UPDATES_DISABLED) {
+		return "当前版本已关闭自动更新。";
+	}
+
+	return "开发版不能检查正式更新；请使用通过安装包装好的 ZZ Record。";
 }
 
 export function isAutoUpdateFeatureEnabled() {
@@ -614,19 +638,19 @@ export async function checkForAppUpdates(
 	getMainWindow: () => BrowserWindow | null,
 	options?: { manual?: boolean },
 ) {
+	// Retained in the public signature for callers shared with the native dialog flow.
+	void getMainWindow;
 	if (!canUseAutoUpdates()) {
 		writeUpdaterLog(
 			`Skipped update check because auto-updates are unavailable. packaged=${app.isPackaged} mas=${process.mas ? "yes" : "no"} disabled=${AUTO_UPDATES_DISABLED ? "yes" : "no"}`,
 		);
+		setUpdateStatusSummary({
+			status: "idle",
+			availableVersion: null,
+			detail: getUnavailableUpdateDetail(),
+		});
 		if (options?.manual) {
-			await showMessageBox(getMainWindow, {
-				type: "info",
-				title: "Updates Not Enabled",
-				message: "Auto-updates are only available in packaged releases.",
-				detail: AUTO_UPDATES_DISABLED
-					? "This build disabled auto-updates through RECORDLY_DISABLE_AUTO_UPDATES=1."
-					: "Development builds do not ship the packaged update metadata required by electron-updater.",
-			});
+			writeUpdaterLog(`Skipped manual update check: ${getUnavailableUpdateDetail()}`);
 		}
 		return;
 	}
@@ -668,7 +692,11 @@ export function setupAutoUpdates(
 	}
 
 	if (!canUseAutoUpdates()) {
-		setUpdateStatusSummary({ status: "idle", availableVersion: null, detail: undefined });
+		setUpdateStatusSummary({
+			status: "idle",
+			availableVersion: null,
+			detail: getUnavailableUpdateDetail(),
+		});
 		return;
 	}
 
