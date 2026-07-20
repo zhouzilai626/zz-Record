@@ -105,10 +105,15 @@
     "target": [
       "nsis"
     ],
-    "icon": "icons/icons/win/icon.ico"
-    ,
+    "icon": "icons/icons/win/icon.ico",
     "executableName": "ZZ Record",
     "artifactName": "zz-Record-windows-${arch}.${ext}"
+  },
+  "nsis": {
+    "createDesktopShortcut": "always",
+    "createStartMenuShortcut": true,
+    "shortcutName": "ZZ Record",
+    "menuCategory": "ZZ Record"
   }
 }
 
