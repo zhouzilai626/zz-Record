@@ -230,8 +230,8 @@ describe("phone camera bridge", () => {
       fetch(setupUrl(sessionA)),
       fetch(setupUrl(sessionA)),
     ]);
-    expect(remainingSetups.slice(0, 2).every((response) => response.status === 200)).toBe(true);
-    expect(remainingSetups[2].status).toBe(410);
+    expect(remainingSetups.filter((response) => response.status === 200)).toHaveLength(2);
+    expect(remainingSetups.filter((response) => response.status === 410)).toHaveLength(1);
 
     currentSession = sessionB;
     const sessionBSetup = await fetch(setupUrl(sessionB));
