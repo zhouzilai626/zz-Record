@@ -1,8 +1,9 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import { app, ipcMain } from "electron";
 import { hideCursor } from "../../cursorHider";
 import { closeCountdownWindow, createCountdownWindow, getCountdownWindow } from "../../windows";
+import { atomicWriteFile, atomicWriteFileSync } from "../atomicFile";
 import { APP_SETTINGS_FILE, COUNTDOWN_SETTINGS_FILE, SHORTCUTS_FILE } from "../constants";
 import { loadRecordingsSettings, updateRecordingsSettings } from "../project/manager";
 import {
@@ -53,7 +54,23 @@ function readAppSettingsStore(): Record<string, unknown> {
 }
 
 function writeAppSettingsStore(store: Record<string, unknown>) {
-	writeFileSync(APP_SETTINGS_FILE, JSON.stringify(store, null, 2), "utf-8");
+	// Synchronous IPC path (event.returnValue): read-modify-write pairs are
+	// already serialized by the main-process event loop, and the atomic
+	// replacement keeps the previous file intact if this write fails midway.
+	atomicWriteFileSync(APP_SETTINGS_FILE, JSON.stringify(store, null, 2));
+}
+
+// Serializes the async settings writers so concurrent IPC calls commit in
+// arrival order instead of racing their staged rename onto the same file.
+let settingsFileWriteQueue: Promise<void> = Promise.resolve();
+
+function enqueueSettingsFileWrite(filePath: string, content: string): Promise<void> {
+	const write = settingsFileWriteQueue.then(() => atomicWriteFile(filePath, content));
+	settingsFileWriteQueue = write.then(
+		() => undefined,
+		() => undefined,
+	);
+	return write;
 }
 
 function hasAppSetting(store: Record<string, unknown>, key: string): boolean {
@@ -127,7 +144,7 @@ export function registerSettingsHandlers() {
 
 	ipcMain.handle("save-shortcuts", async (_, shortcuts: unknown) => {
 		try {
-			await fs.writeFile(SHORTCUTS_FILE, JSON.stringify(shortcuts, null, 2), "utf-8");
+			await enqueueSettingsFileWrite(SHORTCUTS_FILE, JSON.stringify(shortcuts, null, 2));
 			return { success: true };
 		} catch (error) {
 			console.error("Failed to save shortcuts:", error);
@@ -192,10 +209,9 @@ export function registerSettingsHandlers() {
 
 	ipcMain.handle("set-countdown-delay", async (_, delay: number) => {
 		try {
-			await fs.writeFile(
+			await enqueueSettingsFileWrite(
 				COUNTDOWN_SETTINGS_FILE,
 				JSON.stringify({ delay }, null, 2),
-				"utf-8",
 			);
 			return { success: true };
 		} catch (error) {

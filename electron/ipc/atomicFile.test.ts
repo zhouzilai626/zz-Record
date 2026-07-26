@@ -1,8 +1,9 @@
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { atomicWriteFile } from "./atomicFile";
+import { atomicWriteFile, atomicWriteFileSync } from "./atomicFile";
 
 const temporaryDirectories: string[] = [];
 
@@ -61,6 +62,50 @@ describe("atomicWriteFile", () => {
 		const renameSpy = vi.spyOn(fs, "rename").mockRejectedValueOnce(new Error("rename failed"));
 
 		await expect(atomicWriteFile(targetPath, "next-version")).rejects.toThrow("rename failed");
+		expect(await fs.readFile(targetPath, "utf8")).toBe("last-known-good");
+		expect((await fs.readdir(directory)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+		renameSpy.mockRestore();
+	});
+});
+
+describe("atomicWriteFileSync", () => {
+	it("replaces an existing file with complete new content", async () => {
+		const directory = await createTemporaryDirectory();
+		const targetPath = path.join(directory, "app-settings.json");
+		await fs.writeFile(targetPath, '{"theme":"dark"}', "utf8");
+
+		atomicWriteFileSync(targetPath, '{"theme":"light","locale":"zh-CN"}');
+
+		await expect(fs.readFile(targetPath, "utf8")).resolves.toBe(
+			'{"theme":"light","locale":"zh-CN"}',
+		);
+		const files = await fs.readdir(directory);
+		expect(files).toEqual(["app-settings.json"]);
+	});
+
+	it("keeps the prior file intact and removes staging data when staging fails", async () => {
+		const directory = await createTemporaryDirectory();
+		const targetPath = path.join(directory, "app-settings.json");
+		await fs.writeFile(targetPath, "last-known-good", "utf8");
+		const openSpy = vi.spyOn(fsSync, "openSync").mockImplementationOnce(() => {
+			throw new Error("disk full");
+		});
+
+		expect(() => atomicWriteFileSync(targetPath, "next-version")).toThrow("disk full");
+		expect(await fs.readFile(targetPath, "utf8")).toBe("last-known-good");
+		expect((await fs.readdir(directory)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+		openSpy.mockRestore();
+	});
+
+	it("keeps the prior file intact and removes staging data when commit fails", async () => {
+		const directory = await createTemporaryDirectory();
+		const targetPath = path.join(directory, "app-settings.json");
+		await fs.writeFile(targetPath, "last-known-good", "utf8");
+		const renameSpy = vi.spyOn(fsSync, "renameSync").mockImplementationOnce(() => {
+			throw new Error("rename failed");
+		});
+
+		expect(() => atomicWriteFileSync(targetPath, "next-version")).toThrow("rename failed");
 		expect(await fs.readFile(targetPath, "utf8")).toBe("last-known-good");
 		expect((await fs.readdir(directory)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
 		renameSpy.mockRestore();

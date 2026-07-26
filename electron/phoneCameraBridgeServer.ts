@@ -10,6 +10,10 @@ import os from "node:os";
 import path from "node:path";
 import forge from "node-forge";
 import { USER_DATA_PATH } from "./appPaths";
+import {
+  prepareCertificateStore,
+  writeCertificateFilesTransactionally,
+} from "./phoneCameraCertificateStore";
 import { choosePreferredLanAddress } from "./phoneCameraLanAddress";
 import {
   RequestBodyTooLargeError,
@@ -174,6 +178,9 @@ function isValidSession(sessionId: string, pairingToken: string): boolean {
 }
 
 function loadOrCreatePhoneCameraCertificateAuthority(): CertificateAuthority {
+  // Repair interrupted swaps, adopt pre-manifest stores, and clear corrupt
+  // material before anything is read, so a torn write can never be trusted.
+  prepareCertificateStore(PHONE_CAMERA_CERT_DIR);
   fs.mkdirSync(PHONE_CAMERA_CERT_DIR, { recursive: true });
 
   try {
@@ -217,23 +224,17 @@ function loadOrCreatePhoneCameraCertificateAuthority(): CertificateAuthority {
   ]);
   certificate.sign(keys.privateKey, forge.md.sha256.create());
 
-  fs.writeFileSync(
-    PHONE_CAMERA_CA_KEY_PATH,
-    forge.pki.privateKeyToPem(keys.privateKey),
-    "utf8",
-  );
-  fs.writeFileSync(
-    PHONE_CAMERA_CA_PEM_PATH,
-    forge.pki.certificateToPem(certificate),
-    "utf8",
-  );
-  fs.writeFileSync(
-    PHONE_CAMERA_CA_CERT_PATH,
-    Buffer.from(
+  writeCertificateFilesTransactionally(PHONE_CAMERA_CERT_DIR, {
+    [path.basename(PHONE_CAMERA_CA_KEY_PATH)]: forge.pki.privateKeyToPem(
+      keys.privateKey,
+    ),
+    [path.basename(PHONE_CAMERA_CA_PEM_PATH)]:
+      forge.pki.certificateToPem(certificate),
+    [path.basename(PHONE_CAMERA_CA_CERT_PATH)]: Buffer.from(
       forge.asn1.toDer(forge.pki.certificateToAsn1(certificate)).getBytes(),
       "binary",
     ),
-  );
+  });
 
   return { certificate, privateKey: keys.privateKey };
 }
@@ -286,13 +287,15 @@ function loadOrCreatePhoneCameraServerCertificate(
     cert: forge.pki.certificateToPem(certificate),
     key: forge.pki.privateKeyToPem(keys.privateKey),
   };
-  fs.writeFileSync(PHONE_CAMERA_SERVER_CERT_PATH, credentials.cert, "utf8");
-  fs.writeFileSync(PHONE_CAMERA_SERVER_KEY_PATH, credentials.key, "utf8");
-  fs.writeFileSync(
-    PHONE_CAMERA_SERVER_METADATA_PATH,
-    JSON.stringify({ lanAddress }, null, 2),
-    "utf8",
-  );
+  writeCertificateFilesTransactionally(PHONE_CAMERA_CERT_DIR, {
+    [path.basename(PHONE_CAMERA_SERVER_CERT_PATH)]: credentials.cert,
+    [path.basename(PHONE_CAMERA_SERVER_KEY_PATH)]: credentials.key,
+    [path.basename(PHONE_CAMERA_SERVER_METADATA_PATH)]: JSON.stringify(
+      { lanAddress },
+      null,
+      2,
+    ),
+  });
   return credentials;
 }
 
