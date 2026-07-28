@@ -1,9 +1,6 @@
 import { type PointerEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { isPhoneCameraDeviceId } from "@/lib/phoneCamera";
-import {
-	shouldHideExternalLocalWebcamPreview,
-	shouldShowExternalLocalWebcamPreview,
-} from "../floatingWebcamPreview";
+import { shouldShowExternalLocalWebcamPreview } from "../floatingWebcamPreview";
 
 const WEBCAM_PREVIEW_DRAG_THRESHOLD = 6;
 const DEFAULT_WEBCAM_PREVIEW_OFFSET = { x: 0, y: 0 };
@@ -68,11 +65,11 @@ export function useWebcamPreviewOverlay({
 	const isWebcamPreviewDraggingRef = useRef(false);
 	const isPhoneCameraPreview = webcamEnabled && isPhoneCameraDeviceId(webcamDeviceId);
 
-	// The editor can open before this renderer's normal effect cleanup runs. Hide the
-	// protected native preview synchronously as recording ends so it never overlaps
-	// the editor's saved webcam layer during the first rendered second.
+	// The editor can open before normal effect cleanup runs. Hide the protected
+	// recording overlay synchronously, then let the still-alive local stream show
+	// the idle preview again after the transition.
 	useLayoutEffect(() => {
-		if (recording || !shouldHideExternalLocalWebcamPreview(webcamEnabled, isPhoneCameraPreview)) {
+		if (recording || !shouldShowExternalLocalWebcamPreview(webcamEnabled, isPhoneCameraPreview)) {
 			return;
 		}
 		void window.electronAPI.cameraOverlayHideLocal();
@@ -86,18 +83,23 @@ export function useWebcamPreviewOverlay({
 	const resetWebcamPreviewSize = useCallback(() => {
 		setWebcamPreviewSize(DEFAULT_WEBCAM_PREVIEW_SIZE);
 	}, []);
-	// Keep recording previews in a protected native window. Rendering one inside the
-	// HUD can make it part of the captured display and duplicate the saved webcam layer.
+	// Kept for the recorder UI API: the protected native overlay is used instead
+	// of rendering a second local-camera element inside the capture HUD.
 	const showRecordingWebcamPreview = false;
+	// Selecting a local camera is persistent: its native preview must not depend on
+	// whether the device picker is open or whether recording has started.
 	const shouldStreamWebcamPreview =
-		webcamEnabled &&
-		(showRecordingWebcamPreview ||
-			(showWebcamControls && webcamPopoverOpen) ||
-			shouldShowExternalLocalWebcamPreview(
-					recording,
-					webcamEnabled,
-					isPhoneCameraPreview,
-				));
+		shouldShowExternalLocalWebcamPreview(webcamEnabled, isPhoneCameraPreview) ||
+		(webcamEnabled && isPhoneCameraPreview && showWebcamControls && webcamPopoverOpen);
+
+	// The local stream stays alive from device selection through recording. Update
+	// capture protection as recording starts without restarting the MediaStream.
+	useEffect(() => {
+		if (!recording || !shouldShowExternalLocalWebcamPreview(webcamEnabled, isPhoneCameraPreview)) {
+			return;
+		}
+		void window.electronAPI.cameraOverlayShowLocal({ excludeFromCapture: true });
+	}, [isPhoneCameraPreview, recording, webcamEnabled]);
 
 	useEffect(() => {
 		if (!webcamEnabled) {
@@ -456,7 +458,6 @@ export function useWebcamPreviewOverlay({
 	}, [
 		attachPreviewStreamToNode,
 		isPhoneCameraPreview,
-		recording,
 		shouldStreamWebcamPreview,
 		webcamDeviceId,
 	]);

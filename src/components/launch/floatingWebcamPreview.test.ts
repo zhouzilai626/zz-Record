@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
 	canShowFloatingWebcamPreview,
 	canToggleFloatingWebcamPreview,
-	shouldHideExternalLocalWebcamPreview,
 	shouldShowExternalLocalWebcamPreview,
 } from "./floatingWebcamPreview";
 
@@ -24,19 +23,14 @@ describe("canToggleFloatingWebcamPreview", () => {
 		expect(canToggleFloatingWebcamPreview(false)).toBe(false);
 	});
 });
-describe("shouldShowExternalLocalWebcamPreview", () => {
-	it("only keeps a local camera preview in the protected floating window while recording", () => {
-		expect(shouldShowExternalLocalWebcamPreview(true, true, false)).toBe(true);
-		expect(shouldShowExternalLocalWebcamPreview(false, true, false)).toBe(false);
-		expect(shouldShowExternalLocalWebcamPreview(true, false, false)).toBe(false);
-		expect(shouldShowExternalLocalWebcamPreview(true, true, true)).toBe(false);
-	});
-});
 
-describe("shouldHideExternalLocalWebcamPreview", () => {
-	it("hides a local camera preview as soon as recording ends, while leaving phone previews alone", () => {
-		expect(shouldHideExternalLocalWebcamPreview(true, false)).toBe(true);
-		expect(shouldHideExternalLocalWebcamPreview(false, false)).toBe(false);
-		expect(shouldHideExternalLocalWebcamPreview(true, true)).toBe(false);
+describe("shouldShowExternalLocalWebcamPreview", () => {
+	it("keeps a selected local camera preview alive after the picker closes and during recording", () => {
+		expect(shouldShowExternalLocalWebcamPreview(true, false)).toBe(true);
+	});
+
+	it("does not run a local preview for disabled or phone cameras", () => {
+		expect(shouldShowExternalLocalWebcamPreview(false, false)).toBe(false);
+		expect(shouldShowExternalLocalWebcamPreview(true, true)).toBe(false);
 	});
 });
